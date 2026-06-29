@@ -1,0 +1,5 @@
+# Week 2 - From linear regression to MLP
+# Install with:  pip install -r requirements.txt
+torch
+matplotlib
+scikit-learn
