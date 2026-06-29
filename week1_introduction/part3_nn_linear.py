@@ -42,7 +42,7 @@ def main():
     plt.show()
 
     plt.scatter(X, y, s=8, alpha=0.5)
-    plt.plot(X, model(y).detach(), color="red")
+    plt.plot(X, model(X).detach(), color="red")
     plt.title("Linear fit")
     plt.show()
 
