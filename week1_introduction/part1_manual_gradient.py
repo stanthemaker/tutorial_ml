@@ -32,8 +32,19 @@ def main():
     #        - record loss.item() into a list
     #   3. print w, b (should be close to 2 and 1)
     #   4. plot the loss curve (epoch vs loss)
-    raise NotImplementedError("Implement manual gradient descent here.")
+    
+    print(f"w = {w.item():.4f}, b = {b.item():.4f}  (target: 2 and 1)")
 
+    plt.plot(losses)
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("loss curve")
+    plt.show()
+
+    plt.scatter(X, y, s=8, alpha=0.5)
+    plt.plot(X, (w * X + b).detach(), color="red")
+    plt.title("Linear fit")
+    plt.show()
 
 if __name__ == "__main__":
     main()
