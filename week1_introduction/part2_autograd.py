@@ -42,6 +42,11 @@ def main():
     plt.title("Autograd gradient descent - loss curve")
     plt.show()
 
+    plt.scatter(X, y, s=8, alpha=0.5)
+    plt.plot(X, (w * X + b).detach(), color="red")
+    plt.title("Linear fit")
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
