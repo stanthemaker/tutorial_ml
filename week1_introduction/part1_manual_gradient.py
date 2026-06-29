@@ -21,18 +21,27 @@ def main():
     X = torch.linspace(-3, 3, 100).reshape(-1, 1)
     y = 2 * X + 1 + 0.5 * torch.randn_like(X)  # true: w=2, b=1, plus noise
 
-    # TODO: implement manual gradient descent.
-    #   1. Initialise parameters w, b (as plain tensors) and a learning rate.
-    #   2. Loop for ~200 epochs:
-    #        - forward:  y_pred = w * X + b
-    #        - loss:     MSE 
-    #        - gradient: grad_w 
-    #                    grad_b 
-    #        - step:     w -=  ; b -= 
-    #        - record loss.item() into a list
-    #   3. print w, b (should be close to 2 and 1)
-    #   4. plot the loss curve (epoch vs loss)
-    raise NotImplementedError("Implement manual gradient descent here.")
+    w = torch.tensor(0.0)
+    b = torch.tensor(0.0)
+    lr = 0.05
+    losses = []
+
+    for epoch in range(200):
+        y_pred = w * X + b                       # forward
+        loss = ((y_pred - y) ** 2).mean()        # loss (MSE)
+        grad_w = (2 * (y_pred - y) * X).mean()   # gradient by hand
+        grad_b = (2 * (y_pred - y)).mean()
+        w -= lr * grad_w                         # step
+        b -= lr * grad_b
+        losses.append(loss.item())
+
+    print(f"w = {w.item():.4f}, b = {b.item():.4f}  (target: 2 and 1)")
+
+    plt.plot(losses)
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("Manual gradient descent - loss curve")
+    plt.show()
 
 
 if __name__ == "__main__":

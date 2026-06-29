@@ -18,19 +18,29 @@ def main():
     X = torch.linspace(-3, 3, 100).reshape(-1, 1)
     y = 2 * X + 1 + 0.5 * torch.randn_like(X)  # true: w=2, b=1, plus noise
 
-    # TODO: implement gradient descent with autograd.
-    #   1. Create w, b with requires_grad=True, and a learning rate.
-    #   2. Loop for ~200 epochs:
-    #        - forward:  y_pred = w * X + b
-    #        - loss:     MSE = mean((y_pred - y) ** 2)
-    #        - backward:    # autograd fills w.grad, b.grad
-    #        - step inside `with torch.no_grad():`
-    #              w -= lr * w.grad ; b -= lr * b.grad
-    #        - reset gradients:
-    #        - record loss.item()
-    #   3. print w, b (should be close to 2 and 1)
-    #   4. plot the loss curve
-    raise NotImplementedError("Implement autograd-based gradient descent here.")
+    w = torch.tensor(0.0, requires_grad=True)
+    b = torch.tensor(0.0, requires_grad=True)
+    lr = 0.05
+    losses = []
+
+    for epoch in range(200):
+        y_pred = w * X + b                   # forward
+        loss = ((y_pred - y) ** 2).mean()    # loss (MSE)
+        loss.backward()                      # backward: autograd fills .grad
+        with torch.no_grad():                # step (don't track this update)
+            w -= lr * w.grad
+            b -= lr * b.grad
+            w.grad.zero_()                   # reset grads (they accumulate)
+            b.grad.zero_()
+        losses.append(loss.item())
+
+    print(f"w = {w.item():.4f}, b = {b.item():.4f}  (target: 2 and 1)")
+
+    plt.plot(losses)
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("Autograd gradient descent - loss curve")
+    plt.show()
 
 
 if __name__ == "__main__":

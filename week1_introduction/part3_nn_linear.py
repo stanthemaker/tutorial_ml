@@ -19,20 +19,26 @@ def main():
     X = torch.linspace(-3, 3, 100).reshape(-1, 1)
     y = 2 * X + 1 + 0.5 * torch.randn_like(X)  # true: w=2, b=1, plus noise
 
-    # TODO: implement the standard PyTorch training loop.
-    #   1. model     = nn.(1, 1)
-    #      loss_fn   = nn.()
-    #      optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
-    #   2. Loop for ~200 epochs:
-    #        - forward:  y_pred = model(X)
-    #        - loss:     loss = loss_fn(y_pred, y)
-    #        - optimizer.zero_grad()
-    #        - autograd
-    #        - step
-    #        - record loss.item()
-    #   3. print model.weight.item(), model.bias.item() (close to 2 and 1)
-    #   4. scatter the data and overlay the fitted line: model(X).detach()
-    raise NotImplementedError("Implement the nn.Linear + optimizer loop here.")
+    model = nn.Linear(1, 1)
+    loss_fn = nn.MSELoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.05)
+
+    losses = []
+    for epoch in range(200):
+        y_pred = model(X)            # forward
+        loss = loss_fn(y_pred, y)    # loss
+        optimizer.zero_grad()        # reset grads
+        loss.backward()              # backward
+        optimizer.step()             # step
+        losses.append(loss.item())
+
+    print(f"weight = {model.weight.item():.4f}, bias = {model.bias.item():.4f}"
+          "  (target: 2 and 1)")
+
+    plt.scatter(X, y, s=8, alpha=0.5)
+    plt.plot(X, model(X).detach(), color="red")
+    plt.title("nn.Linear fit")
+    plt.show()
 
 
 if __name__ == "__main__":
