@@ -16,7 +16,7 @@ def main():
     y = torch.sin(X) + 0.1 * torch.randn_like(X)  # a curvy relationship
 
     # TODO: fit this curvy data with a *linear* model and watch it fail.
-    #   1. linear  = nn.Linear(1, 1)
+    #   1. linear  = nn.Linear(_, _)
     #      opt     = torch.optim.SGD(linear.parameters(), lr=0.05)
     #      loss_fn = nn.MSELoss()
     #   2. Train for ~300 epochs with the standard 4-step loop.
