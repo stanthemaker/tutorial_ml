@@ -1,0 +1,6 @@
+# Keep practice/solution .py files divergent between branches.
+# During a merge, each branch keeps its OWN version of these files
+# (templates on main, solutions on answer) instead of merging them.
+# Requires:  git config merge.ours.driver true   (run once per clone)
+*.py merge=ours
+
