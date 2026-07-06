@@ -41,13 +41,19 @@ def load_mnist(train, n_subset=None):
 
 
 def build_model():
-    # TODO 1 define model with 784 input, 128 neurons in hidden layer and 10 outputs
+    # Same shape as part2_mlp_classification.py's `clf`, just wider:
+    # 784 in (flattened pixels), 128 hidden, 10 classes out.
+    # The problem is identical: find a boundary in a multi-dimensional space
+    # that separates the classes -- the space just has 784 dimensions
+    # instead of 2.
     return nn.Sequential(
-
+        nn.Linear(784, 128),
+        nn.ReLU(),  # <- try removing ReLU and see the results
+        nn.Linear(128, 10),
     )
 
 
-def     evaluate(model, loader):
+def evaluate(model, loader):
     """Test accuracy, computed exactly like part2: argmax + mean of correct."""
     model.eval()
     correct = total = 0
@@ -126,15 +132,13 @@ def main():
         mlp.train()
         epoch_loss = 0.0
         for images, labels in train_loader:
-            # TODO 2
-            # flatten the 2D image with .view()
-            # get logits
-            # get loss
-            # clear grad in optimizer
-            # backpropagate
-            # update weights
-            # accumulate loss 
-
+            x = images.view(-1, 784)  # 28x28 image -> 784-dim vector
+            logits = mlp(x)
+            loss = loss_fn(logits, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
         losses.append(epoch_loss / len(train_loader))
         print(f"epoch {epoch + 1}/15  loss {losses[-1]:.4f}")
 

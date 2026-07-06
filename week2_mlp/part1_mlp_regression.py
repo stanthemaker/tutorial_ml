@@ -20,20 +20,21 @@ def main():
     torch.manual_seed(0)
     X = torch.linspace(-3, 3, 200).reshape(-1, 1)
     y = torch.sin(X) + 0.1 * torch.randn_like(X)  # a curvy relationship
-    #TODO 1 define model with 32 neurons in hidden layer
+
     mlp = nn.Sequential(
-        
+        nn.Linear(1, 32),   # input -> hidden (32 neurons)
+        nn.ReLU(),          # <- this line is what makes it an MLP
+        nn.Linear(32, 1),   # hidden -> output
     )
     optimizer = torch.optim.Adam(mlp.parameters(), lr=0.01)
     loss_fn = nn.MSELoss()
 
     for epoch in range(1000):       # same 4-step loop as week 1
-        # get y_pred
-        # get loss
-        # clear grad in optimizer
-        # backpropagate
-        # update weights
-        
+        y_pred = mlp(X)
+        loss = loss_fn(y_pred, y)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
     plt.scatter(X, y, s=8, alpha=0.4)
     plt.plot(X, mlp(X).detach(), color="red")  # now hugs the sine wave
