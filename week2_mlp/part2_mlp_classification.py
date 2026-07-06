@@ -22,24 +22,24 @@ def main():
     X = torch.tensor(X_np, dtype=torch.float32)
     y = torch.tensor(y_np, dtype=torch.long)
 
+    # TODO 1define model
     clf = nn.Sequential(
-        nn.Linear(2, 16),  # 2 input features
-        nn.ReLU(),
-        nn.Linear(16, 2),  # 2 classes -> 2 outputs
+
     )
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(clf.parameters(), lr=0.01)
 
     losses = []  # track loss so we can plot the curve
     for epoch in range(500):  # same 4-step loop, classification flavour
-        logits = clf(X)
-        loss = loss_fn(logits, y)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        losses.append(loss.item())
+        # TODO 2 
+        # get logits
+        # get loss
+        # clear grad in optimizer
+        # backpropagate
+        # update weights
 
-    pred = clf(X).argmax(dim=1)
+    # TODO 3 get final pred with .argmax(dim = ?)
+    
     acc = (pred == y).float().mean()
     print(f"accuracy: {acc:.2%}")
 
