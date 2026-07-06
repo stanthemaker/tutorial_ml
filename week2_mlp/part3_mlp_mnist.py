@@ -19,6 +19,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 
 def load_mnist(train, n_subset=None):
@@ -47,7 +48,7 @@ def build_model():
     # instead of 2.
     return nn.Sequential(
         nn.Linear(784, 128),
-        nn.ReLU(),
+        nn.ReLU(),  # <- try removing ReLU and see the results
         nn.Linear(128, 10),
     )
 
@@ -63,6 +64,54 @@ def evaluate(model, loader):
             correct += (pred == labels).sum().item()
             total += labels.size(0)
     return correct / total
+
+
+def collect_predictions(model, loader):
+    """Run the whole loader once and return (predictions, true labels).
+
+    Same argmax step as evaluate(), but here we keep every prediction so we
+    can draw a confusion matrix instead of just counting correct ones.
+    """
+    model.eval()
+    preds, trues = [], []
+    with torch.no_grad():
+        for images, labels in loader:
+            pred = model(images.view(-1, 784)).argmax(dim=1)
+            preds.append(pred)
+            trues.append(labels)
+    return torch.cat(preds), torch.cat(trues)
+
+
+def plot_sample_predictions(model, test_ds, n=10):
+    """Show n test digits with the model's predicted label.
+
+    In part2 we could draw the decision boundary; here we can't, so the most
+    direct way to *see* what the model does is to look at actual images and
+    the digit it guessed. Titles are green when correct, red when wrong.
+    """
+    model.eval()
+    fig, axes = plt.subplots(2, n // 2, figsize=(1.4 * (n // 2), 3.2))
+    for ax, (image, true) in zip(axes.ravel(), test_ds):
+        with torch.no_grad():
+            pred = model(image.view(-1, 784)).argmax(dim=1).item()
+        ax.imshow(image.squeeze(), cmap="gray")
+        ax.set_title(f"pred {pred}", color="green" if pred == true else "red")
+        ax.axis("off")
+    fig.suptitle("Test digits and the MLP's prediction (red = wrong)")
+    fig.tight_layout()
+
+
+def plot_confusion(preds, trues):
+    """Confusion matrix over the 10 digit classes.
+
+    Row = true digit, column = predicted digit. A perfect model would light
+    up only the diagonal; off-diagonal cells reveal which digits get confused
+    (classically 4<->9, 3<->5<->8), the same overlap part3c visualizes with PCA.
+    """
+    cm = confusion_matrix(trues.numpy(), preds.numpy(), labels=range(10))
+    disp = ConfusionMatrixDisplay(cm, display_labels=range(10))
+    disp.plot(cmap="Blues", colorbar=False)
+    disp.ax_.set_title("MNIST confusion matrix (rows = true, cols = predicted)")
 
 
 def main():
@@ -94,19 +143,30 @@ def main():
         print(f"epoch {epoch + 1}/15  loss {losses[-1]:.4f}")
 
     acc = evaluate(mlp, test_loader)
-    print(f"MLP (with ReLU) test accuracy: {acc:.2%}")
+    print(f"Test accuracy: {acc:.2%}")
 
     # Save the trained weights so part3c can reload this exact model to
     # extract hidden-layer activations (instead of retraining from scratch).
-    torch.save(mlp.state_dict(), "mnist_mlp.pt")
+    # torch.save(mlp.state_dict(), "mnist_mlp.pt")
 
-    # Only a loss curve here: unlike part2 we can't draw a decision boundary,
-    # because the input lives in 784 dimensions and a plot has 2. We'll come
-    # back to *seeing* that space with PCA in part3c_mnist_pca_verify.py.
+    # Unlike part2 we can't draw a decision boundary, because the input lives
+    # in 784 dimensions and a plot has 2. Instead we look at the model three
+    # other ways: the loss curve, actual predictions, and a confusion matrix.
+    # (We'll *see* the 784-dim space itself with PCA in part3c.)
+    plt.figure()
     plt.plot(losses, marker="o", color="tab:purple")
     plt.title(f"MNIST MLP training loss (test acc {acc:.1%})")
     plt.xlabel("epoch")
     plt.ylabel("cross-entropy")
+
+    # A few real test images with the digit the model predicted.
+    plot_sample_predictions(mlp, test_ds, n=10)
+
+    # Where do the remaining errors go? The confusion matrix breaks the single
+    # accuracy number down into which digits get mistaken for which.
+    preds, trues = collect_predictions(mlp, test_loader)
+    plot_confusion(preds, trues)
+
     plt.show()
 
 

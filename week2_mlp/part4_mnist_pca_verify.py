@@ -47,8 +47,10 @@ def get_trained_mlp():
         print("loaded trained model from mnist_mlp.pt")
         return mlp
 
-    print("mnist_mlp.pt not found -- training a quick MLP (run part3 first "
-          "to reuse its weights)")
+    print(
+        "mnist_mlp.pt not found -- training a quick MLP (run part3 first "
+        "to reuse its weights)"
+    )
     train_loader = DataLoader(
         load_mnist(train=True, n_subset=15000), batch_size=128, shuffle=True
     )
@@ -88,14 +90,14 @@ def main():
     labels = y.numpy()
 
     sc = axes[0].scatter(raw_2d[:, 0], raw_2d[:, 1], c=labels, cmap="tab10", s=8)
-    axes[0].set_title("原始像素空間 (PCA)\nRaw pixel space (PCA)")
+    axes[0].set_title("Raw pixel space (PCA)")
     # Notice the left plot already shows fairly separated clusters, even
     # though it's just raw pixels with no learning involved -- this is the
     # visual evidence for why the ReLU-free model in part3b still hit ~90%+:
     # the classes were already close to linearly separable.
 
     axes[1].scatter(hidden_2d[:, 0], hidden_2d[:, 1], c=labels, cmap="tab10", s=8)
-    axes[1].set_title("Hidden layer 表示法 (PCA)\nHidden layer representation (PCA)")
+    axes[1].set_title("Hidden layer representation (PCA)")
     # The right plot shows tighter, more separated clusters -- this is where
     # the extra ~6-8 percentage points from part3's ReLU come from: the
     # non-linearity cleans up the remaining overlap (e.g. between 4/9 or 3/5/8).
@@ -103,11 +105,6 @@ def main():
     # shared colorbar mapping colors -> digit labels 0-9
     cbar = fig.colorbar(sc, ax=axes, ticks=range(10), fraction=0.046, pad=0.04)
     cbar.set_label("digit label")
-
-    fig.suptitle(
-        "Same idea as the moons decision boundary -- just projected down to 2D "
-        "since we can't draw 784 dimensions directly."
-    )
     plt.show()
 
 
