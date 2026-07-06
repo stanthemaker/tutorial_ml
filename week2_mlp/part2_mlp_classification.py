@@ -20,19 +20,24 @@ def main():
     X = torch.tensor(X_np, dtype=torch.float32)
     y = torch.tensor(y_np, dtype=torch.long)
 
-    # TODO: build an MLP classifier and train it.
-    #   1. clf = nn.Sequential(
-    #          nn.Linear(2, _),   # 2 input features
-    #          nn.ReLU(),
-    #          nn.Linear(_, 2),   # 2 classes -> 2 outputs
-    #      )
-    #      loss_fn   = nn.CrossEntropyLoss()
-    #      optimizer = torch.optim.Adam(clf.parameters(), lr=0.01)
-    #   2. Train for ~500 epochs with the SAME 4-step loop:
-    #        logits = clf(X) ; loss = loss_fn(logits, y) ; ... backward/step
-    #   3. accuracy: pred = clf(X).argmax(dim=1); acc = (pred == y).float().mean()
-    #      print the accuracy.
-    raise NotImplementedError("Build and train the MLP classifier here.")
+    clf = nn.Sequential(
+        nn.Linear(2, 16),   # 2 input features
+        nn.ReLU(),
+        nn.Linear(16, 2),   # 2 classes -> 2 outputs
+    )
+    loss_fn = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(clf.parameters(), lr=0.01)
+
+    for epoch in range(500):        # same 4-step loop, classification flavour
+        logits = clf(X)
+        loss = loss_fn(logits, y)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+    pred = clf(X).argmax(dim=1)
+    acc = (pred == y).float().mean()
+    print(f"accuracy: {acc:.2%}")
 
 
 if __name__ == "__main__":
