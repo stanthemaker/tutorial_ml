@@ -1,0 +1,6 @@
+# Week 3 - From MLP to CNN
+# Install with:  pip install -r requirements.txt
+torch
+torchvision
+matplotlib
+scikit-learn
