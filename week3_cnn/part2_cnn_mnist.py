@@ -78,14 +78,14 @@ def build_model():
     hand) -- part4 will visualise what the first layer ended up learning.
     """
     return nn.Sequential(
-        nn.Conv2d(1, 8, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2),
-        nn.Conv2d(8, 16, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2),
-        nn.Flatten(),
-        nn.Linear(16 * 7 * 7, 10),
+        # nn.Conv2d(_, _, kernel_size=_, padding=_),
+        # nn.ReLU(),
+        # nn.MaxPool2d(_),
+        # nn.Conv2d(_, _, kernel_size=_, padding=_),
+        # nn.ReLU(),
+        # nn.MaxPool2d(_),
+        # nn.Flatten(),
+        # nn.Linear(_, 10),
     )
 
 
@@ -96,7 +96,9 @@ def evaluate(model, loader):
     with torch.no_grad():
         for images, labels in loader:
             images, labels = images.to(device), labels.to(device)
-            pred = model(images).argmax(dim=1)  # no flatten -- CNN takes images directly
+            pred = model(images).argmax(
+                dim=1
+            )  # no flatten -- CNN takes images directly
             correct += (pred == labels).sum().item()
             total += labels.size(0)
     return correct / total

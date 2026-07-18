@@ -70,24 +70,37 @@ python week2_mlp/part1_mlp_regression.py
 The `main` branch holds the **completed** scripts. To work through the
 exercises yourself, switch to that week's `week<#>_todo` branch, where the key
 lines are blanked out and marked with `# TODO` comments for you to fill in.
-Replace `<#>` with the week number — e.g. `week2_todo` for Week 2:
+Replace `<#>` with the week number — e.g. `week2_todo` for Week 2.
+
+**1. Get the latest branches from GitHub.** First make sure your local copy
+knows about the newest `todo` branches:
 
 ```bash
-git checkout week2_todo
+git pull
 ```
 
-Fill in the TODOs in that week's scripts (e.g. `week2_mlp/`), then run them to
-check your work:
+**2. Switch to the week's todo branch.** `git switch` creates a local branch
+that tracks the one on GitHub the first time you use it:
+
+```bash
+git switch week2_todo
+```
+
+(If your git is older and `switch` isn't available, use
+`git checkout week2_todo` instead — it does the same thing here.)
+
+**3. Fill in the TODOs** in that week's scripts (e.g. `week2_mlp/`), then run
+them to check your work:
 
 ```bash
 python week2_mlp/part1_mlp_regression.py
 ```
 
-When you want to compare against the reference solution, switch back to `main`
-(commit or stash your changes first so they aren't lost):
+**4. Compare against the reference solution.** When you want to see the answers,
+switch back to `main` (commit or stash your changes first so they aren't lost):
 
 ```bash
-git checkout main
+git switch main
 ```
 
 To see the answer for a single file without leaving your branch, use (again
