@@ -89,19 +89,19 @@ def build_model():
         Linear(1024, 128) -> ReLU -> Linear(128, 10)
     """
     return nn.Sequential(
-        nn.Conv2d(3, 32, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2),
-        nn.Conv2d(32, 64, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2),
-        nn.Conv2d(64, 64, kernel_size=3, padding=1),
-        nn.ReLU(),
-        nn.MaxPool2d(2),
-        nn.Flatten(),
-        nn.Linear(64 * 4 * 4, 128),
-        nn.ReLU(),
-        nn.Linear(128, 10),
+        # nn.Conv2d(_, _, kernel_size=_, padding=_),
+        # nn.ReLU(),
+        # nn.MaxPool2d(_),
+        # nn.Conv2d(_, _, kernel_size=_, padding=_),
+        # nn.ReLU(),
+        # nn.MaxPool2d(2),
+        # nn.Conv2d(_, _, kernel_size=_, padding=_),
+        # nn.ReLU(),
+        # nn.MaxPool2d(_),
+        # nn.Flatten(),
+        # nn.Linear(_ * _ * _, _),
+        # nn.ReLU(),
+        # nn.Linear(_, _),
     )
 
 
