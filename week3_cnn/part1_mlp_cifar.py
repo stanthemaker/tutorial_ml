@@ -26,11 +26,16 @@ filter so position stops mattering, and reuse it everywhere so you need far
 fewer weights.
 """
 
+import os
+
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
+
+# Checkpoints land next to this file, never in the current working directory.
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part1.pt")
 
 CLASSES = [
     "plane", "car", "bird", "cat", "deer",
@@ -191,6 +196,11 @@ def main():
 
     acc = evaluate(mlp, test_loader)
     print(f"\nTest accuracy: {acc:.2%}  (chance is 10%; the Week 3 CNN clears 70%+)")
+
+    # Keep the weights: the templates plotted below are worth coming back to
+    # once you have seen what the CNN learns instead.
+    torch.save(mlp.state_dict(), WEIGHTS)
+    print(f"saved weights to {WEIGHTS}")
 
     # View 1: the loss curve and how low the ceiling is.
     plt.figure()

@@ -1,0 +1,5 @@
+# Week 4 - Autoencoder -> CNN Autoencoder -> U-Net
+# Install with:  pip install -r requirements.txt
+torch
+torchvision
+matplotlib

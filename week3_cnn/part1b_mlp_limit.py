@@ -24,11 +24,16 @@ translation handling) and *reuses* the same weights everywhere (far fewer
 parameters). That is the whole pitch for the rest of Week 3.
 """
 
+import os
+
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+
+# Checkpoints land next to this file, never in the current working directory.
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part1b.pt")
 
 
 def get_device():
@@ -152,6 +157,11 @@ def main():
             loss.backward()
             optimizer.step()
         print(f"epoch {epoch + 1}/5 done")
+
+    # Keep the weights so the shift experiment below can be re-run (or the
+    # templates re-plotted) without paying for another five epochs.
+    torch.save(mlp.state_dict(), WEIGHTS)
+    print(f"saved weights to {WEIGHTS}")
 
     # How many learnable numbers is that? Almost all of them sit in the first
     # 784 -> 256 matrix (784 * 256 = 200,704 weights). That count is tied to the
