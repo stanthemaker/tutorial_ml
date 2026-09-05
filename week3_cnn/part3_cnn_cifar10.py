@@ -19,12 +19,20 @@ and keep epochs modest so it finishes in a few minutes -- enough to land well
 above chance (10%) and comfortably past where a same-size MLP plateaus.
 """
 
+import argparse
+import os
+
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+# Checkpoints land next to this file, never in the current working directory.
+# `python week3_cnn/part3_cnn_cifar10.py` from the repo root and `python
+# part3_cnn_cifar10.py` from inside the folder then write the same file.
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part3.pt")
 
 CLASSES = [
     "plane",
@@ -156,26 +164,37 @@ def plot_confusion(preds, trues):
     disp.ax_.set_title("CIFAR-10 CNN confusion matrix (rows = true, cols = predicted)")
 
 
-def main():
-    torch.manual_seed(0)
+def parse_args():
+    """CLI: train a fresh model by default, or reuse a checkpoint with --load.
 
-    device = get_device()
-    print(f"using device: {device}")
+    Training the CNN takes a few minutes on CPU. Once you have run it once,
+    `--load week3_cnn/part3.pt` skips straight to the plots so you can poke at
+    the predictions and confusion matrix without paying for training again.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--load",
+        metavar="PATH",
+        default=None,
+        help="path to a saved .pt state_dict; skips training and uses those weights",
+    )
+    parser.add_argument(
+        "--save",
+        metavar="PATH",
+        default=WEIGHTS,
+        help="where to write the trained weights (default: week3_cnn/part3.pt)",
+    )
+    return parser.parse_args()
 
-    train_ds = load_cifar10(train=True, n_subset=20000)
-    test_ds = load_cifar10(train=False)
-    train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
-    test_loader = DataLoader(test_ds, batch_size=256)
 
-    cnn = build_model().to(device)
+def train(cnn, train_loader, epochs=20):
+    """Standard training loop; returns the per-epoch mean loss."""
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)
-
-    n_params = sum(p.numel() for p in cnn.parameters())
-    print(f"CNN parameters: {n_params:,}")
+    device = next(cnn.parameters()).device
 
     losses = []
-    for epoch in range(20):
+    for epoch in range(epochs):
         cnn.train()
         epoch_loss = 0.0
         for images, labels in train_loader:
@@ -187,18 +206,45 @@ def main():
             optimizer.step()
             epoch_loss += loss.item()
         losses.append(epoch_loss / len(train_loader))
-        print(f"epoch {epoch + 1}/20  loss {losses[-1]:.4f}")
+        print(f"epoch {epoch + 1}/{epochs}  loss {losses[-1]:.4f}")
+    return losses
+
+
+def main():
+    args = parse_args()
+    torch.manual_seed(0)
+
+    device = get_device()
+    print(f"using device: {device}")
+
+    test_ds = load_cifar10(train=False)
+    test_loader = DataLoader(test_ds, batch_size=256)
+
+    cnn = build_model().to(device)
+    n_params = sum(p.numel() for p in cnn.parameters())
+    print(f"CNN parameters: {n_params:,}")
+
+    if args.load is not None:
+        # map_location: a checkpoint saved on a GPU box still loads on a laptop.
+        cnn.load_state_dict(torch.load(args.load, map_location=device))
+        print(f"loaded weights from {args.load} (skipping training)")
+        losses = None
+    else:
+        train_ds = load_cifar10(train=True, n_subset=20000)
+        train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
+        losses = train(cnn, train_loader, epochs=100)
+        torch.save(cnn.state_dict(), args.save)
+        print(f"saved weights to {args.save}")
 
     acc = evaluate(cnn, test_loader)
     print(f"Test accuracy: {acc:.2%}  (chance is 10%)")
 
-    torch.save(cnn.state_dict(), "cifar_cnn.pt")
-
-    plt.figure()
-    plt.plot(losses, marker="o", color="tab:orange")
-    plt.title(f"CIFAR-10 CNN training loss (test acc {acc:.1%})")
-    plt.xlabel("epoch")
-    plt.ylabel("cross-entropy")
+    if losses is not None:
+        plt.figure()
+        plt.plot(losses, marker="o", color="tab:orange")
+        plt.title(f"CIFAR-10 CNN training loss (test acc {acc:.1%})")
+        plt.xlabel("epoch")
+        plt.ylabel("cross-entropy")
 
     plot_sample_predictions(cnn, test_ds, n=10)
 

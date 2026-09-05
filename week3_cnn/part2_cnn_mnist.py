@@ -18,9 +18,11 @@ Two things to compare against the MLP:
     shifted/local patterns that tripped up the MLP in demo_mlp_limits.py.
 
 We reuse the same three views as Week 2: loss curve, sample predictions, and a
-confusion matrix. The trained weights are saved to mnist_cnn.pt so part4 can
-reload this exact model to visualise its filters.
+confusion matrix. The trained weights are saved to week3_cnn/part2.pt so
+part4 can reload this exact model to visualise its filters.
 """
+
+import os
 
 import torch
 import torch.nn as nn
@@ -28,6 +30,10 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+# Checkpoints land next to this file, never in the current working directory,
+# so part4 finds them at the same path however you launched training.
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part2.pt")
 
 
 def get_device():
@@ -175,8 +181,9 @@ def main():
     print(f"Test accuracy: {acc:.2%}")
 
     # Save so part4 can reload this exact model to visualise its first-layer
-    # filters (instead of retraining from scratch).
-    torch.save(cnn.state_dict(), "mnist_cnn.pt")
+    # filters. part4 *requires* this file -- it never trains a stand-in.
+    torch.save(cnn.state_dict(), WEIGHTS)
+    print(f"saved weights to {WEIGHTS}")
 
     plt.figure()
     plt.plot(losses, marker="o", color="tab:green")

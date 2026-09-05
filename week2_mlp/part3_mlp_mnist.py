@@ -14,12 +14,18 @@ dimensions, so we *can't* draw it directly -- we'll come back to *seeing*
 this space later, using PCA (see part3c_mnist_pca_verify.py).
 """
 
+import os
+
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
+# Checkpoints land next to this file, never in the current working directory,
+# so part4 finds them at the same path however you launched training.
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part3.pt")
 
 
 def load_mnist(train, n_subset=None):
@@ -145,9 +151,10 @@ def main():
     acc = evaluate(mlp, test_loader)
     print(f"Test accuracy: {acc:.2%}")
 
-    # Save the trained weights so part3c can reload this exact model to
+    # Save the trained weights so part4 can reload this exact model to
     # extract hidden-layer activations (instead of retraining from scratch).
-    # torch.save(mlp.state_dict(), "mnist_mlp.pt")
+    torch.save(mlp.state_dict(), WEIGHTS)
+    print(f"saved weights to {WEIGHTS}")
 
     # Unlike part2 we can't draw a decision boundary, because the input lives
     # in 784 dimensions and a plot has 2. Instead we look at the model three

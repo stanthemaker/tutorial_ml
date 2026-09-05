@@ -18,45 +18,58 @@ Two views:
      its pattern in the image. This is the "eyes on the evidence" step: the
      filters from view (1), applied to an actual digit.
 
-Like Week 2's part4, this file reloads the model trained in part2 if its
-weights are on disk (mnist_cnn.pt); otherwise it trains a quick CNN so the
-script still runs standalone.
+This script only *looks* at a model -- it never trains one. Pass the weights
+part2 saved as the one required argument:
+
+    python part2_cnn_mnist.py                     # trains, writes part2.pt
+    python part4_cnn_mnist_visualize.py part2.pt
+
+Requiring the checkpoint is deliberate (part5 works the same way). A
+quick-trained stand-in would still draw eight plausible-looking kernels, and
+you would have no way to tell that you were reading structure into a barely
+trained model. Better to refuse to run.
 """
 
+import argparse
 import os
+
 import torch
-import torch.nn as nn
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 
 from part2_cnn_mnist import load_mnist, build_model, get_device
 
 
-def get_trained_cnn(device):
-    """Reuse part2's trained weights if present; otherwise train a quick CNN."""
-    cnn = build_model().to(device)
-    if os.path.exists("mnist_cnn.pt"):
-        # map_location=device so weights saved on any device load onto ours.
-        cnn.load_state_dict(torch.load("mnist_cnn.pt", map_location=device))
-        print("loaded trained model from mnist_cnn.pt")
-        return cnn
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "checkpoint",
+        metavar="MODEL.pt",
+        help="weights to visualise -- run part2_cnn_mnist.py to produce part2.pt",
+    )
+    args = parser.parse_args()
+    if not os.path.exists(args.checkpoint):
+        parser.error(
+            f"{args.checkpoint} not found -- run 'python part2_cnn_mnist.py' "
+            "first to train a model and save its weights"
+        )
+    return args
 
-    print(
-        "mnist_cnn.pt not found -- training a quick CNN (run part2 first "
-        "to reuse its weights)"
-    )
-    train_loader = DataLoader(
-        load_mnist(train=True, n_subset=15000), batch_size=128, shuffle=True
-    )
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)
-    for _ in range(3):  # a few epochs is plenty for the filters to take shape
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
-            loss = loss_fn(cnn(images), labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+
+def load_cnn(path, device):
+    """Load part2's architecture and fill it with the checkpoint's weights."""
+    cnn = build_model().to(device)
+    # map_location=device so weights saved on any device load onto ours.
+    state = torch.load(path, map_location=device)
+    try:
+        cnn.load_state_dict(state)
+    except RuntimeError as err:
+        # Almost always an older checkpoint from a different architecture.
+        raise SystemExit(
+            f"{path} does not match part2's model -- retrain with "
+            f"'python part2_cnn_mnist.py'\n\n{err}"
+        )
+    print(f"loaded weights from {path}")
     return cnn
 
 
@@ -98,11 +111,12 @@ def plot_feature_maps(cnn, image):
 
 
 def main():
-    torch.manual_seed(0)
+    args = parse_args()
+    torch.manual_seed(0)  # only the test digit picked below is random
 
     device = get_device()
     print(f"using device: {device}")
-    cnn = get_trained_cnn(device)
+    cnn = load_cnn(args.checkpoint, device)
 
     # (1) the learned kernels on their own
     plot_filters(cnn[0])

@@ -27,7 +27,9 @@ From a flattened MLP to convolutions that keep the image 2D:
 - [part1_conv_basics.py](week3_cnn/part1_conv_basics.py) — `nn.Conv2d` / `nn.MaxPool2d`, the output-size formula, and receptive field, shown with a hand-set edge detector on a synthetic shape.
 - [part2_cnn_mnist.py](week3_cnn/part2_cnn_mnist.py) — the same MNIST task with `Conv → ReLU → Pool` instead of the MLP: similar accuracy with ~20× fewer parameters.
 - [part3_cnn_cifar10.py](week3_cnn/part3_cnn_cifar10.py) — CIFAR-10 colour photos, where the Week 2 MLP/PCA tricks fail and the CNN's spatial features pay off.
-- [part4_filter_visualization.py](week3_cnn/part4_filter_visualization.py) — visualize the first-layer conv filters the CNN *learned*, echoing Week 2's PCA verification.
+- [part4_cnn_mnist_visualize.py](week3_cnn/part4_cnn_mnist_visualize.py) — visualize the first-layer conv filters the CNN *learned* on MNIST, plus their response on a real digit, echoing Week 2's PCA verification.
+- [part5_cnn_cifar10_visualize.py](week3_cnn/part5_cnn_cifar10_visualize.py) — how filters change with depth: kernels and feature maps at three depths of the CIFAR-10 CNN, and what "RGB" stops meaning after layer 1.
+- [part6_cnn_overfitting.py](week3_cnn/part6_cnn_overfitting.py) — part3 hits 100% train / 68% test; a held-out validation split makes the gap visible, and `--augment` / `--regularize` show what actually closes it.
 
 ## Setup
 

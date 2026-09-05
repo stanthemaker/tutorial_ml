@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
 from sklearn.decomposition import PCA
 
-from part3_mlp_mnist import load_mnist, build_model
+from part3_mlp_mnist import load_mnist, build_model, WEIGHTS
 
 
 def get_sample(n=2000):
@@ -42,13 +42,13 @@ def get_trained_mlp():
     """Reuse part3's trained weights if present; otherwise train a quick MLP
     so this file still runs standalone (consistent with part1/part2/demo)."""
     mlp = build_model()
-    if os.path.exists("mnist_mlp.pt"):
-        mlp.load_state_dict(torch.load("mnist_mlp.pt"))
-        print("loaded trained model from mnist_mlp.pt")
+    if os.path.exists(WEIGHTS):
+        mlp.load_state_dict(torch.load(WEIGHTS))
+        print(f"loaded trained model from {WEIGHTS}")
         return mlp
 
     print(
-        "mnist_mlp.pt not found -- training a quick MLP (run part3 first "
+        f"{WEIGHTS} not found -- training a quick MLP (run part3 first "
         "to reuse its weights)"
     )
     train_loader = DataLoader(
