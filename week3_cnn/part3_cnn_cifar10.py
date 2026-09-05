@@ -187,7 +187,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def train(cnn, train_loader, epochs=20):
+def train(cnn, train_loader, epochs=40):
     """Standard training loop; returns the per-epoch mean loss."""
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)

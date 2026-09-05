@@ -31,6 +31,10 @@ From a flattened MLP to convolutions that keep the image 2D:
 - [part5_cnn_cifar10_visualize.py](week3_cnn/part5_cnn_cifar10_visualize.py) — how filters change with depth: kernels and feature maps at three depths of the CIFAR-10 CNN, and what "RGB" stops meaning after layer 1.
 - [part6_cnn_overfitting.py](week3_cnn/part6_cnn_overfitting.py) — part3 hits 100% train / 68% test; a held-out validation split makes the gap visible, and `--augment` / `--regularize` show what actually closes it.
 
+### Week 4 — ResNet ([week4_resnet/](week4_resnet/))
+Going deeper, once the layers are allowed to learn a correction instead of a replacement:
+- [part1_resnet_cifar10.py](week4_resnet/part1_resnet_cifar10.py) — a residual block is `out = F(x) + x`, and that one addition makes depth safe: 14 weighted layers in *fewer* parameters than Week 3's 5-layer CNN, on part6's exact split (73% → 78%). Then `--sgd` and `--full-data` show that the rest of the way to the paper's 90% is optimizer schedule and data budget, not architecture.
+
 ## Setup
 
 Create and activate a conda environment (Python 3.12):
@@ -56,6 +60,7 @@ Install the dependencies:
 pip install -r week1_introduction/requirements.txt
 pip install -r week2_mlp/requirements.txt
 pip install -r week3_cnn/requirements.txt
+pip install -r week4_resnet/requirements.txt
 ```
 
 ## Running
