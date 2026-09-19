@@ -1,8 +1,9 @@
 # tutorial_ml
 
 A hands-on PyTorch tutorial that builds up from gradient descent by hand to a
-multi-layer perceptron (MLP) and then a convolutional neural network (CNN).
-Each script is self-contained and meant to be run and read top-to-bottom.
+multi-layer perceptron (MLP), then a convolutional neural network (CNN), and
+finally a U-Net that labels every pixel of a photograph. Each script is
+self-contained and meant to be run and read top-to-bottom.
 
 ## Contents
 
@@ -30,10 +31,20 @@ From a flattened MLP to convolutions that keep the image 2D:
 - [part4_cnn_mnist_visualize.py](week3_cnn/part4_cnn_mnist_visualize.py) — visualize the first-layer conv filters the CNN *learned* on MNIST, plus their response on a real digit, echoing Week 2's PCA verification.
 - [part5_cnn_cifar10_visualize.py](week3_cnn/part5_cnn_cifar10_visualize.py) — how filters change with depth: kernels and feature maps at three depths of the CIFAR-10 CNN, and what "RGB" stops meaning after layer 1.
 - [part6_cnn_overfitting.py](week3_cnn/part6_cnn_overfitting.py) — part3 hits 100% train / 68% test; a held-out validation split makes the gap visible, and `--augment` / `--regularize` show what actually closes it.
+- Every training script takes `--eval`: skip training, load the checkpoint a previous run saved to `checkpoints/`, and print the same test numbers. Parts 7 and 8 also reread `results/<run>.json`, so their tables and curves come back in full; their sweeps (`--data-curve`, `--lr-sweep`, `--depth-sweep`) save no weights and so have no `--eval`.
 
-### Week 4 — ResNet ([week4_resnet/](week4_resnet/))
-Going deeper, once the layers are allowed to learn a correction instead of a replacement:
-- [part1_resnet_cifar10.py](week4_resnet/part1_resnet_cifar10.py) — a residual block is `out = F(x) + x`, and that one addition makes depth safe: 14 weighted layers in *fewer* parameters than Week 3's 5-layer CNN, on part6's exact split (73% → 78%). Then `--sgd` and `--full-data` show that the rest of the way to the paper's 90% is optimizer schedule and data budget, not architecture.
+### Week 4 — Segmentation with U-Net ([week4_unet/](week4_unet/))
+From one label per image to one label per pixel, on Oxford-IIIT Pet photographs:
+- [part1_classifier_to_segmenter.py](week4_unet/part1_classifier_to_segmenter.py) — Week 3's classifier with `Flatten → Linear` deleted and `Conv1x1 → Upsample(×8)` in its place. Same trunk, same `CrossEntropyLoss`, now applied to 9,216 pixels instead of one image. Deleting two layers gets most of a working segmenter — and the output has no structure finer than 8 px, because the decision was made on a 12×12 grid. Retires pixel accuracy (predicting "background" everywhere scores 0.579) in favour of mean IoU.
+- [part2a_cnn_autoencoder.py](week4_unet/part2a_cnn_autoencoder.py) — replace the fixed stretch with a *learned* decoder, on the easiest target there is: no labels, the photo is its own answer. `ConvTranspose2d` vs `Upsample + Conv2d`.
+- [part2b_waist_sweep.py](week4_unet/part2b_waist_sweep.py) — the control experiment: 2/3/4 poolings prove the remaining blur is the bottleneck rather than the parameter count — a 6×6 waist with 16.6× the weights of a 24×24 one reconstructs 7 dB worse.
+- [part3_encoder_decoder.py](week4_unet/part3_encoder_decoder.py) — aim that decoder at the real task. Two lines change: a 3-channel head with no Sigmoid, and `CrossEntropyLoss` on `(N, C, H, W)` logits. Worth +0.225 mIoU over part 1 — the biggest single jump of the week — and the boundary is still the worst of the three classes. `--pretrained` reuses part 2's autoencoder weights: a wash with all 3,680 labels, worth +0.040 mIoU with only 500, which is the honest case for self-supervised pretraining.
+- [part4_unet.py](week4_unet/part4_unet.py) — `torch.cat([up, skip], dim=1)`, three times. one run trains the identical network twice, once with the skips zeroed, at *exactly* the same parameter count, so the +0.033 mIoU is provably the skips and not the capacity — and the skipless U-Net, which is the larger model, scores *below* part 3's plain encoder-decoder.
+- [part5_unet_visualize.py](week4_unet/part5_unet_visualize.py) — what the skips actually carry: the feature maps handed to the decoder, each model's wrong pixels in red, and accuracy against distance to the nearest boundary — the gain is +0.048 within 1px of an edge and exactly zero 16px away, which is the mechanism rather than the claim.
+- [compare_parts.py](week4_unet/compare_parts.py) — the summary slide: every model the week produced, on the same test images, with mean IoU and border-class IoU beside each row. Loads the saved checkpoints rather than retraining.
+- [slides/build_slides.py](week4_unet/slides/build_slides.py) — builds the session deck, `slides/week4_unet.pptx`. Every metric on a slide is measured at build time by loading `checkpoints/*.pt`, every tensor shape in the architecture diagrams comes from a real forward pass, and the training curves are read from `results/training_curves.json` — so the deck cannot drift away from the code.
+- Every run logs per-epoch curves to trackio: `trackio show --project "week4-unet"`. The instruments are mean IoU and border-class IoU rather than accuracy; `WEEK4_NO_TRACKIO=1` switches the logging off.
+- Every training script (parts 1–4, including 2b) takes `--eval`: skip training, load `checkpoints/<run>.pt` with the same flags you trained with, and print the same table. Loading is strict, so a checkpoint from an older version of a model fails loudly instead of running half-random.
 
 ## Setup
 
@@ -60,7 +71,7 @@ Install the dependencies:
 pip install -r week1_introduction/requirements.txt
 pip install -r week2_mlp/requirements.txt
 pip install -r week3_cnn/requirements.txt
-pip install -r week4_resnet/requirements.txt
+pip install -r week4_unet/requirements.txt
 ```
 
 ## Running

@@ -18,10 +18,11 @@ Two things to compare against the MLP:
     shifted/local patterns that tripped up the MLP in demo_mlp_limits.py.
 
 We reuse the same three views as Week 2: loss curve, sample predictions, and a
-confusion matrix. The trained weights are saved to week3_cnn/part2.pt so
+confusion matrix. The trained weights are saved to week3_cnn/checkpoints/part2.pt so
 part4 can reload this exact model to visualise its filters.
 """
 
+import argparse
 import os
 
 import torch
@@ -33,7 +34,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # Checkpoints land next to this file, never in the current working directory,
 # so part4 finds them at the same path however you launched training.
-WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part2.pt")
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "part2.pt")
 
 
 def get_device():
@@ -141,53 +142,80 @@ def plot_confusion(preds, trues):
     disp.ax_.set_title("MNIST CNN confusion matrix (rows = true, cols = predicted)")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load checkpoints/part2.pt and go straight to the plots",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     torch.manual_seed(0)
 
     device = get_device()
     print(f"using device: {device}")
 
-    train_ds = load_mnist(train=True, n_subset=20000)
     test_ds = load_mnist(train=False)
-    train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=256)
 
     cnn = build_model().to(device)
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)
 
     # For contrast: the MLP from Week 2 had ~200k parameters. Print the CNN's.
     n_params = sum(p.numel() for p in cnn.parameters())
     print(f"CNN parameters: {n_params:,}  (Week 2's MLP had ~203,000)")
 
-    losses = []
-    for epoch in range(8):  # same 4-step loop, now over mini-batches of images
-        cnn.train()
-        epoch_loss = 0.0
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
-            logits = cnn(images)  # feed images straight in -- no .view(-1, 784)
-            loss = loss_fn(logits, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-        losses.append(epoch_loss / len(train_loader))
-        print(f"epoch {epoch + 1}/8  loss {losses[-1]:.4f}")
+    if args.eval:
+        if not os.path.exists(WEIGHTS):
+            raise SystemExit(f"{WEIGHTS} not found -- run 'python part2_cnn_mnist.py' "
+                             "once without --eval to train and save it")
+        try:
+            # map_location: a checkpoint saved on a GPU box still loads on a laptop.
+            cnn.load_state_dict(torch.load(WEIGHTS, map_location=device))
+        except RuntimeError as err:
+            # Almost always a checkpoint saved by an older version of this file.
+            raise SystemExit(f"{WEIGHTS} does not match this file's model -- retrain "
+                             f"with 'python part2_cnn_mnist.py'\n\n{err}")
+        print(f"loaded weights from {WEIGHTS} (skipping training)")
+        losses = None
+    else:
+        train_ds = load_mnist(train=True, n_subset=20000)
+        train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
+        loss_fn = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)
+
+        losses = []
+        for epoch in range(8):  # same 4-step loop, now over mini-batches of images
+            cnn.train()
+            epoch_loss = 0.0
+            for images, labels in train_loader:
+                images, labels = images.to(device), labels.to(device)
+                logits = cnn(images)  # feed images straight in -- no .view(-1, 784)
+                loss = loss_fn(logits, labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+            losses.append(epoch_loss / len(train_loader))
+            print(f"epoch {epoch + 1}/8  loss {losses[-1]:.4f}")
+
+        # Save so part4 can reload this exact model to visualise its first-layer
+        # filters. part4 *requires* this file -- it never trains a stand-in.
+        torch.save(cnn.state_dict(), WEIGHTS)
+        print(f"saved weights to {WEIGHTS}")
 
     acc = evaluate(cnn, test_loader)
     print(f"Test accuracy: {acc:.2%}")
 
-    # Save so part4 can reload this exact model to visualise its first-layer
-    # filters. part4 *requires* this file -- it never trains a stand-in.
-    torch.save(cnn.state_dict(), WEIGHTS)
-    print(f"saved weights to {WEIGHTS}")
-
-    plt.figure()
-    plt.plot(losses, marker="o", color="tab:green")
-    plt.title(f"MNIST CNN training loss (test acc {acc:.1%}, {n_params:,} params)")
-    plt.xlabel("epoch")
-    plt.ylabel("cross-entropy")
+    if losses is not None:
+        plt.figure()
+        plt.plot(losses, marker="o", color="tab:green")
+        plt.title(f"MNIST CNN training loss (test acc {acc:.1%}, {n_params:,} params)")
+        plt.xlabel("epoch")
+        plt.ylabel("cross-entropy")
 
     plot_sample_predictions(cnn, test_ds, n=10)
 

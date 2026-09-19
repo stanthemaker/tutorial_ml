@@ -122,6 +122,8 @@ from part3_cnn_cifar10 import evaluate, get_device
 # which directory you launched python from.
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = os.path.join(HERE, "data")
+CHECKPOINTS = os.path.join(HERE, "checkpoints")   # weights (*.pt, gitignored)
+RESULTS = os.path.join(HERE, "results")           # one JSON history per run
 
 # 18,000 + 2,000 = the same 20,000-image budget part3 used, so the comparison
 # against part3's numbers is honest. We are not fixing overfitting by quietly
@@ -334,10 +336,33 @@ def run_config(key, args, device):
                     weight_decay=WEIGHT_DECAY if cfg["regularize"] else 0.0)
 
     if not args.no_save:
-        path = os.path.join(HERE, f"part6_{key}.pt")
+        os.makedirs(CHECKPOINTS, exist_ok=True)
+        path = os.path.join(CHECKPOINTS, f"part6_{key}.pt")
         torch.save(model.state_dict(), path)
         print(f"  saved weights to {path}")
     return history, model
+
+
+def load_config(key, device):
+    """--eval: rebuild one config's model from part6_<key>.pt instead of training.
+
+    The file holds the best-validation epoch's weights -- train() restores them
+    before run_config() saves -- so this is the same model the training run's
+    table describes. Dropout must match the config: it is a layer in the
+    Sequential, so leaving it out would shift every key after it.
+    """
+    cfg = CONFIGS[key]
+    path = os.path.join(CHECKPOINTS, f"part6_{key}.pt")
+    if not os.path.exists(path):
+        flags = {"baseline": "", "aug": " --augment", "reg": " --regularize",
+                 "aug_reg": " --augment --regularize"}[key]
+        raise SystemExit(f"{path} not found -- run "
+                         f"'python part6_cnn_overfitting.py{flags}' once to train it")
+    model = build_model(dropout=DROPOUT if cfg["regularize"] else 0.0).to(device)
+    # map_location: a checkpoint saved on a GPU box still loads on a laptop.
+    model.load_state_dict(torch.load(path, map_location=device))
+    print(f"loaded {path} ({cfg['label']})")
+    return model
 
 
 def plot_gap(ax, history, title):
@@ -409,6 +434,9 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--no-save", action="store_true",
                         help="skip writing part6_<config>.pt")
+    parser.add_argument("--eval", action="store_true",
+                        help="skip training: load part6_<config>.pt for the chosen "
+                             "config(s) and print the train/val/test table")
     return parser.parse_args()
 
 
@@ -423,21 +451,35 @@ def main():
     keys = list(CONFIGS) if args.compare else [config_key(args.augment, args.regularize)]
     results = {}
     models = {}
-    for key in keys:
-        results[key], models[key] = run_config(key, args, device)
+    if args.eval:
+        models = {key: load_config(key, device) for key in keys}
+        # No history to read train/val from, so measure them the same way the
+        # training loop did: clean (unaugmented) probe and validation splits.
+        _, val_ds, probe_ds = make_splits(augment=False)
+        val_loader = DataLoader(val_ds, batch_size=512)
+        probe_loader = DataLoader(probe_ds, batch_size=512)
+    else:
+        for key in keys:
+            results[key], models[key] = run_config(key, args, device)
 
     # ---- the test set, opened once, after every decision has been made ----
     print("\nloading the held-out test files for the first time...")
     test_loader = DataLoader(load_test(), batch_size=512)
 
     # Every row describes the epoch validation selected, so train/val/test all
-    # refer to the same set of weights.
+    # refer to the same set of weights. (Under --eval the epoch is not stored
+    # in the checkpoint, so that column reads "-".)
     print(f"\n{'config':<32}{'epoch':>7}{'train':>8}{'val':>8}{'test':>8}{'gap':>8}")
     print("-" * 71)
     for key in keys:
-        history = results[key]
-        best = history["best_epoch"]
-        train_acc, val_acc = history["train"][best - 1], history["val"][best - 1]
+        if args.eval:
+            best = "-"
+            train_acc = evaluate(models[key], probe_loader)
+            val_acc = evaluate(models[key], val_loader)
+        else:
+            history = results[key]
+            best = history["best_epoch"]
+            train_acc, val_acc = history["train"][best - 1], history["val"][best - 1]
         test_acc = evaluate(models[key], test_loader)
         print(f"{CONFIGS[key]['label']:<32}{best:>7}"
               f"{train_acc:>8.3f}{val_acc:>8.3f}"
@@ -448,6 +490,10 @@ def main():
     print("\nvalidation and test track each other because both are unseen data.")
     print("that is what lets you tune on validation and still trust the test number.")
 
+    if args.eval:
+        print("\n(--eval: the curves need per-epoch history, which only a training "
+              "run has -- nothing to plot)")
+        return
     if args.compare:
         plot_compare(results)
     else:

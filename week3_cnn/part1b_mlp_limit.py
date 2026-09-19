@@ -24,6 +24,7 @@ translation handling) and *reuses* the same weights everywhere (far fewer
 parameters). That is the whole pitch for the rest of Week 3.
 """
 
+import argparse
 import os
 
 import torch
@@ -33,7 +34,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
 # Checkpoints land next to this file, never in the current working directory.
-WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part1b.pt")
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "part1b.pt")
 
 
 def get_device():
@@ -135,33 +136,57 @@ def evaluate(model, loader, dx=0, dy=0):
     return correct / total
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load checkpoints/part1b.pt and rerun the shift experiment",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     torch.manual_seed(0)
 
     device = get_device()
     print(f"using device: {device}")
 
-    train_loader = DataLoader(load_mnist(train=True), batch_size=128, shuffle=True)
     test_loader = DataLoader(load_mnist(train=False), batch_size=256)
-
     mlp = build_mlp().to(device)
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(mlp.parameters(), lr=0.001)
 
-    for epoch in range(5):  # a few epochs is plenty to reach ~97% on centred data
-        mlp.train()
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
-            loss = loss_fn(mlp(images), labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        print(f"epoch {epoch + 1}/5 done")
+    if args.eval:
+        if not os.path.exists(WEIGHTS):
+            raise SystemExit(f"{WEIGHTS} not found -- run 'python part1b_mlp_limit.py' "
+                             "once without --eval to train and save it")
+        try:
+            # map_location: a checkpoint saved on a GPU box still loads on a laptop.
+            mlp.load_state_dict(torch.load(WEIGHTS, map_location=device))
+        except RuntimeError as err:
+            # Almost always a checkpoint saved by an older version of this file.
+            raise SystemExit(f"{WEIGHTS} does not match this file's model -- retrain "
+                             f"with 'python part1b_mlp_limit.py'\n\n{err}")
+        print(f"loaded weights from {WEIGHTS} (skipping training)")
+    else:
+        train_loader = DataLoader(load_mnist(train=True), batch_size=128, shuffle=True)
+        loss_fn = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(mlp.parameters(), lr=0.001)
 
-    # Keep the weights so the shift experiment below can be re-run (or the
-    # templates re-plotted) without paying for another five epochs.
-    torch.save(mlp.state_dict(), WEIGHTS)
-    print(f"saved weights to {WEIGHTS}")
+        for epoch in range(5):  # a few epochs is plenty to reach ~97% on centred data
+            mlp.train()
+            for images, labels in train_loader:
+                images, labels = images.to(device), labels.to(device)
+                loss = loss_fn(mlp(images), labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            print(f"epoch {epoch + 1}/5 done")
+
+        # Keep the weights so the shift experiment below can be re-run (or the
+        # templates re-plotted) without paying for another five epochs.
+        torch.save(mlp.state_dict(), WEIGHTS)
+        print(f"saved weights to {WEIGHTS}")
 
     # How many learnable numbers is that? Almost all of them sit in the first
     # 784 -> 256 matrix (784 * 256 = 200,704 weights). That count is tied to the

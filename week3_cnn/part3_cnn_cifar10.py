@@ -32,7 +32,7 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 # Checkpoints land next to this file, never in the current working directory.
 # `python week3_cnn/part3_cnn_cifar10.py` from the repo root and `python
 # part3_cnn_cifar10.py` from inside the folder then write the same file.
-WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part3.pt")
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "part3.pt")
 
 CLASSES = [
     "plane",
@@ -168,10 +168,15 @@ def parse_args():
     """CLI: train a fresh model by default, or reuse a checkpoint with --load.
 
     Training the CNN takes a few minutes on CPU. Once you have run it once,
-    `--load week3_cnn/part3.pt` skips straight to the plots so you can poke at
+    `--load week3_cnn/checkpoints/part3.pt` skips straight to the plots so you can poke at
     the predictions and confusion matrix without paying for training again.
     """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load checkpoints/part3.pt (shorthand for --load with the default path)",
+    )
     parser.add_argument(
         "--load",
         metavar="PATH",
@@ -182,7 +187,7 @@ def parse_args():
         "--save",
         metavar="PATH",
         default=WEIGHTS,
-        help="where to write the trained weights (default: week3_cnn/part3.pt)",
+        help="where to write the trained weights (default: week3_cnn/checkpoints/part3.pt)",
     )
     return parser.parse_args()
 
@@ -223,6 +228,12 @@ def main():
     cnn = build_model().to(device)
     n_params = sum(p.numel() for p in cnn.parameters())
     print(f"CNN parameters: {n_params:,}")
+
+    if args.eval and args.load is None:
+        args.load = WEIGHTS
+    if args.load is not None and not os.path.exists(args.load):
+        raise SystemExit(f"{args.load} not found -- run 'python part3_cnn_cifar10.py' "
+                         "once without --eval/--load to train and save it")
 
     if args.load is not None:
         # map_location: a checkpoint saved on a GPU box still loads on a laptop.

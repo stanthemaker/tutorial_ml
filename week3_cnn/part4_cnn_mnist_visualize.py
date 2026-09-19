@@ -21,8 +21,8 @@ Two views:
 This script only *looks* at a model -- it never trains one. Pass the weights
 part2 saved as the one required argument:
 
-    python part2_cnn_mnist.py                     # trains, writes part2.pt
-    python part4_cnn_mnist_visualize.py part2.pt
+    python part2_cnn_mnist.py                     # trains, writes checkpoints/part2.pt
+    python part4_cnn_mnist_visualize.py checkpoints/part2.pt
 
 Requiring the checkpoint is deliberate (part5 works the same way). A
 quick-trained stand-in would still draw eight plausible-looking kernels, and
@@ -45,7 +45,7 @@ def parse_args():
     parser.add_argument(
         "checkpoint",
         metavar="MODEL.pt",
-        help="weights to visualise -- run part2_cnn_mnist.py to produce part2.pt",
+        help="weights to visualise -- run part2_cnn_mnist.py to produce checkpoints/part2.pt",
     )
     args = parser.parse_args()
     if not os.path.exists(args.checkpoint):
