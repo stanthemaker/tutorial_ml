@@ -74,9 +74,20 @@ import argparse
 import torch
 import torch.nn as nn
 
-from common import (DoubleConv, count_params, finish, get_device,
-                    load_pet, load_weights, make_loaders, save_weights,
-                    show_grid, tracked, train, undisturbed)
+from common import (
+    DoubleConv,
+    count_params,
+    finish,
+    get_device,
+    load_pet,
+    load_weights,
+    make_loaders,
+    save_weights,
+    show_grid,
+    tracked,
+    train,
+    undisturbed,
+)
 
 
 def up_block(in_ch, out_ch, mode):
@@ -133,42 +144,42 @@ class ConvAutoencoder(nn.Module):
     def __init__(self, in_ch=3, out_ch=3, base=32, mode="convt"):
         super().__init__()
         self.pool = nn.MaxPool2d(2)
+        # TODO:
+        # # ---- encoder: three blocks, one pooling after each ----
+        # self.enc1 = DoubleConv(in_ch, base)                   #  32 x 96 x 96
+        # self.enc2 = DoubleConv(base, base * _)                #  64 x 48 x 48
+        # self.enc3 = DoubleConv(base * _, base * _)            # 128 x 24 x 24
+        # self.bottleneck = DoubleConv(base * _, base * _)      # 256 x 12 x 12
 
-        # ---- encoder: three blocks, one pooling after each ----
-        self.enc1 = DoubleConv(in_ch, base)                   #  32 x 96 x 96
-        self.enc2 = DoubleConv(base, base * 2)                #  64 x 48 x 48
-        self.enc3 = DoubleConv(base * 2, base * 4)            # 128 x 24 x 24
-        self.bottleneck = DoubleConv(base * 4, base * 8)      # 256 x 12 x 12
+        # # ---- decoder: one upsampling per pooling, in reverse ----
+        # # Each up_block halves the channels and doubles the resolution, so the
+        # # decoder retraces the encoder's shapes exactly backwards.
+        # self.up3 = up_block(base * _, base * _, mode)         # 128 x 24 x 24
+        # self.dec3 = DoubleConv(base * _, base * _)
+        # self.up2 = up_block(base * _, base * _, mode)         #  64 x 48 x 48
+        # self.dec2 = DoubleConv(base * _, base * _)
+        # self.up1 = up_block(base * _, base, mode)             #  32 x 96 x 96
+        # self.dec1 = DoubleConv(base, base)
 
-        # ---- decoder: one upsampling per pooling, in reverse ----
-        # Each up_block halves the channels and doubles the resolution, so the
-        # decoder retraces the encoder's shapes exactly backwards.
-        self.up3 = up_block(base * 8, base * 4, mode)         # 128 x 24 x 24
-        self.dec3 = DoubleConv(base * 4, base * 4)
-        self.up2 = up_block(base * 4, base * 2, mode)         #  64 x 48 x 48
-        self.dec2 = DoubleConv(base * 2, base * 2)
-        self.up1 = up_block(base * 2, base, mode)             #  32 x 96 x 96
-        self.dec1 = DoubleConv(base, base)
-
-        self.head = nn.Sequential(nn.Conv2d(base, out_ch, 1), nn.Sigmoid())
+        # self.head = nn.Sequential(nn.Conv2d(base, out_ch, 1), nn.Sigmoid())
 
     def forward(self, x):
         # ---- down. Each block looks at the image, then throws away half the
         #      resolution. Note what happens to e1, e2, e3: nothing. They are
         #      computed, used once, and dropped. That is Part 4's whole point.
-        e1 = self.enc1(x)                      #  32 x 96 x 96  <- finest detail
-        e2 = self.enc2(self.pool(e1))          #  64 x 48 x 48
-        e3 = self.enc3(self.pool(e2))          # 128 x 24 x 24
-        b = self.bottleneck(self.pool(e3))     # 256 x 12 x 12  <- the waist
+        e1 = self.enc1(x)  #  32 x 96 x 96  <- finest detail
+        e2 = self.enc2(self.pool(e1))  #  64 x 48 x 48
+        e3 = self.enc3(self.pool(e2))  # 128 x 24 x 24
+        b = self.bottleneck(self.pool(e3))  # 256 x 12 x 12  <- the waist
 
         # ---- up. Everything below here is rebuilt from b and nothing else.
         #      Worth noticing: b holds MORE numbers (256x12x12 = 36,864) than
         #      the output has pixels (3x96x96 = 27,648). The squeeze is not
         #      capacity, it is RESOLUTION -- one waist cell per 8x8 block of
         #      input, so nothing narrower than 8 pixels has a place to live.
-        d3 = self.dec3(self.up3(b))            # 128 x 24 x 24
-        d2 = self.dec2(self.up2(d3))           #  64 x 48 x 48
-        d1 = self.dec1(self.up1(d2))           #  32 x 96 x 96
+        d3 = self.dec3(self.up3(b))  # 128 x 24 x 24
+        d2 = self.dec2(self.up2(d3))  #  64 x 48 x 48
+        d1 = self.dec1(self.up1(d2))  #  32 x 96 x 96
         return self.head(d1)
 
 
@@ -179,7 +190,9 @@ def psnr(mse):
     it, and because "+3 dB" is easier to feel than "0.0041 vs 0.0082" -- +3 dB
     means the error energy halved.
     """
-    return float("inf") if mse == 0 else 10.0 * torch.log10(torch.tensor(1.0 / mse)).item()
+    return (
+        float("inf") if mse == 0 else 10.0 * torch.log10(torch.tensor(1.0 / mse)).item()
+    )
 
 
 @torch.no_grad()
@@ -210,11 +223,13 @@ def recon_probe(loader):
     logs the two numbers it does have. PSNR is a restatement of MSE, but it is
     the one that reads on a chart.
     """
+
     @undisturbed
     def probe(model):
         mse = eval_mse(model, loader)
-        model.train()               # eval_mse left it in eval mode
+        model.train()  # eval_mse left it in eval mode
         return {"test/mse": mse, "test/psnr": psnr(mse)}
+
     return probe
 
 
@@ -222,9 +237,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--n-train", type=int, default=None)
-    parser.add_argument("--eval", action="store_true",
-                        help="skip training: load part2_ae_convt.pt and "
-                             "part2_ae_upsample.pt and print the same table")
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load part2_ae_convt.pt and "
+        "part2_ae_upsample.pt and print the same table",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(0)
@@ -237,10 +255,13 @@ def main():
     test_ds = load_pet("test", n_subset=1000, segmentation=False)
     train_loader, test_loader = make_loaders(train_ds, test_ds)
 
-    loss_fn = nn.MSELoss()      # the target is pixels, so squared error
+    loss_fn = nn.MSELoss()  # the target is pixels, so squared error
     rows, titles, table = [], [], []
 
-    for label, mode in [("ConvTranspose2d", "convt"), ("Upsample + Conv2d", "upsample")]:
+    for label, mode in [
+        ("ConvTranspose2d", "convt"),
+        ("Upsample + Conv2d", "upsample"),
+    ]:
         torch.manual_seed(0)
         model = ConvAutoencoder(mode=mode)
         print(f"=== {label} decoder -- {count_params(model):,} parameters ===")
@@ -252,13 +273,28 @@ def main():
             load_weights(model, key)
             model.to(device)
         else:
-            with tracked(label, config=dict(part=2, arch=mode,
-                                            params=count_params(model),
-                                            poolings=3,
-                                            epochs=args.epochs, lr=1e-3,
-                                            n_train=len(train_ds))) as run:
-                train(model, train_loader, device, loss_fn, epochs=args.epochs,
-                      lr=1e-3, run=run, eval_fn=recon_probe(test_loader))
+            with tracked(
+                label,
+                config=dict(
+                    part=2,
+                    arch=mode,
+                    params=count_params(model),
+                    poolings=3,
+                    epochs=args.epochs,
+                    lr=1e-3,
+                    n_train=len(train_ds),
+                ),
+            ) as run:
+                train(
+                    model,
+                    train_loader,
+                    device,
+                    loss_fn,
+                    epochs=args.epochs,
+                    lr=1e-3,
+                    run=run,
+                    eval_fn=recon_probe(test_loader),
+                )
 
         mse = eval_mse(model, test_loader)
         print(f"  test MSE {mse:.4f}   PSNR {psnr(mse):.2f} dB\n")
@@ -300,7 +336,11 @@ def main():
     print("still HAD the whiskers in it. We used it once, pooled it, and threw")
     print("it away. Part 4 is that one sentence, turned into an architecture.")
 
-    show_grid(rows, titles, suptitle="Reconstruction through a 12x12 waist: shape survives, detail does not")
+    show_grid(
+        rows,
+        titles,
+        suptitle="Reconstruction through a 12x12 waist: shape survives, detail does not",
+    )
     finish("part2")
 
 

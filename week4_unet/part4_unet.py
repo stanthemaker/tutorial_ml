@@ -104,11 +104,28 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 
-from common import (CLASS_SHORT, IMAGE_SIZE, N_CLASSES, DoubleConv,
-                    colorize_batch, count_params, evaluate_seg, finish,
-                    get_device, load_pet, load_weights, make_loaders,
-                    predict_batch, print_metrics, save_history, save_weights,
-                    seg_probe, show_grid, tracked, train)
+from common import (
+    CLASS_SHORT,
+    IMAGE_SIZE,
+    N_CLASSES,
+    DoubleConv,
+    colorize_batch,
+    count_params,
+    evaluate_seg,
+    finish,
+    get_device,
+    load_pet,
+    load_weights,
+    make_loaders,
+    predict_batch,
+    print_metrics,
+    save_history,
+    save_weights,
+    seg_probe,
+    show_grid,
+    tracked,
+    train,
+)
 from part3_encoder_decoder import SegAutoencoder
 
 
@@ -150,19 +167,19 @@ class UNet(nn.Module):
         self.use_skips = use_skips
         self.pool = nn.MaxPool2d(2)
 
-        self.enc1 = DoubleConv(in_ch, base)                 # 96x96
-        self.enc2 = DoubleConv(base, base * 2)              # 48x48
-        self.enc3 = DoubleConv(base * 2, base * 4)          # 24x24
-        self.bottleneck = DoubleConv(base * 4, base * 8)    # 12x12
+        self.enc1 = DoubleConv(in_ch, base)  # 96x96
+        self.enc2 = DoubleConv(base, base * 2)  # 48x48
+        self.enc3 = DoubleConv(base * 2, base * 4)  # 24x24
+        self.bottleneck = DoubleConv(base * 4, base * 8)  # 12x12
 
         # Each ConvTranspose halves the channel count; the cat then doubles it
         # straight back, which is why every dec block takes 2x what up gives.
         self.up3 = nn.ConvTranspose2d(base * 8, base * 4, kernel_size=2, stride=2)
-        self.dec3 = DoubleConv(base * 8, base * 4)    # base*8 = 128 up + 128 skip
+        self.dec3 = DoubleConv(base * 8, base * 4)  # base*8 = 128 up + 128 skip
         self.up2 = nn.ConvTranspose2d(base * 4, base * 2, kernel_size=2, stride=2)
-        self.dec2 = DoubleConv(base * 4, base * 2)    # base*4 =  64 up +  64 skip
+        self.dec2 = DoubleConv(base * 4, base * 2)  # base*4 =  64 up +  64 skip
         self.up1 = nn.ConvTranspose2d(base * 2, base, kernel_size=2, stride=2)
-        self.dec1 = DoubleConv(base * 2, base)        # base*2 =  32 up +  32 skip
+        self.dec1 = DoubleConv(base * 2, base)  # base*2 =  32 up +  32 skip
 
         # A 1x1 conv is a per-pixel linear layer across channels: 32 feature
         # values at each pixel -> 3 class scores, with no spatial mixing. Raw
@@ -178,19 +195,20 @@ class UNet(nn.Module):
         """
         if not self.use_skips:
             skip = torch.zeros_like(skip)
-        return torch.cat([up, skip], dim=1)   # dim=1 is the channel axis
+        return torch.cat([up, skip], dim=1)  # dim=1 is the channel axis
 
     def forward(self, x):
+        # TODO:
         # ---- encoder: keep every feature map on the way down ----
-        s1 = self.enc1(x)                     #  32 x 96 x 96  <- finest detail
-        s2 = self.enc2(self.pool(s1))         #  64 x 48 x 48
-        s3 = self.enc3(self.pool(s2))         # 128 x 24 x 24
-        b = self.bottleneck(self.pool(s3))    # 256 x 12 x 12  <- same as Part 3
+        # s1 = self.enc1(x)                     #  32 x 96 x 96  <- finest detail
+        # s2 = self.enc2(self.pool(s1))         #  64 x 48 x 48
+        # s3 = self.enc3(self.pool(s2))         # 128 x 24 x 24
+        # b = self.bottleneck(self.pool(s3))    # 256 x 12 x 12  <- same as Part 3
 
-        # ---- decoder: upsample, re-attach the matching encoder map ----
-        d3 = self.dec3(self._join(self.up3(b), s3))    # 128 x 24 x 24
-        d2 = self.dec2(self._join(self.up2(d3), s2))   #  64 x 48 x 48
-        d1 = self.dec1(self._join(self.up1(d2), s1))   #  32 x 96 x 96
+        # # ---- decoder: upsample, re-attach the matching encoder map ----
+        # d3 = self.dec3(self._join(self.up3(b), _))    # 128 x 24 x 24
+        # d2 = self.dec2(self._join(self.up2(d3), _))   #  64 x 48 x 48
+        # d1 = self.dec1(self._join(self.up1(d2), _))   #  32 x 96 x 96
         return self.head(d1)
 
 
@@ -201,10 +219,26 @@ def describe_shapes(model, device):
     than believed. If you change the architecture, run this first.
     """
     hooks, log = [], []
-    for name in ["enc1", "enc2", "enc3", "bottleneck",
-                 "up3", "dec3", "up2", "dec2", "up1", "dec1", "head"]:
-        hooks.append(getattr(model, name).register_forward_hook(
-            lambda m, i, o, n=name: log.append((n, i[0].shape[1], tuple(o.shape[1:])))))
+    for name in [
+        "enc1",
+        "enc2",
+        "enc3",
+        "bottleneck",
+        "up3",
+        "dec3",
+        "up2",
+        "dec2",
+        "up1",
+        "dec1",
+        "head",
+    ]:
+        hooks.append(
+            getattr(model, name).register_forward_hook(
+                lambda m, i, o, n=name: log.append(
+                    (n, i[0].shape[1], tuple(o.shape[1:]))
+                )
+            )
+        )
     with torch.no_grad():
         model(torch.zeros(1, 3, IMAGE_SIZE, IMAGE_SIZE, device=device))
     for h in hooks:
@@ -229,7 +263,7 @@ def zoom_figure(rows, titles, truth, box=44):
     the border-class mask scores every possible box by how much boundary it
     contains, and we crop the winner.
     """
-    border = (truth == 2).float().unsqueeze(1)             # (N, 1, H, W)
+    border = (truth == 2).float().unsqueeze(1)  # (N, 1, H, W)
     dens = torch.nn.functional.avg_pool2d(border, kernel_size=box, stride=4)
     flat = dens.flatten()
     n, _, gh, gw = dens.shape
@@ -239,8 +273,11 @@ def zoom_figure(rows, titles, truth, box=44):
 
     fig, axes = plt.subplots(1, len(rows), figsize=(2.6 * len(rows), 3.0))
     for ax, batch, title in zip(axes, rows, titles):
-        ax.imshow(batch[idx, :, top:top + box, left:left + box]
-                  .permute(1, 2, 0).clamp(0, 1))
+        ax.imshow(
+            batch[idx, :, top : top + box, left : left + box]
+            .permute(1, 2, 0)
+            .clamp(0, 1)
+        )
         ax.set_title(title, fontsize=9)
         ax.axis("off")
     fig.suptitle("The busiest boundary in the batch, magnified")
@@ -252,13 +289,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--n-train", type=int, default=None)
-    parser.add_argument("--shapes-only", action="store_true",
-                        help="print the shape table and exit, no training")
-    parser.add_argument("--skip-part3", action="store_true",
-                        help="only run the skips ON/OFF ablation")
-    parser.add_argument("--eval", action="store_true",
-                        help="skip training: load the checkpoints a previous run "
-                             "saved and print the same table and figure")
+    parser.add_argument(
+        "--shapes-only",
+        action="store_true",
+        help="print the shape table and exit, no training",
+    )
+    parser.add_argument(
+        "--skip-part3", action="store_true", help="only run the skips ON/OFF ablation"
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load the checkpoints a previous run "
+        "saved and print the same table and figure",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(0)
@@ -284,10 +328,12 @@ def main():
         ("U-Net, skips ON", lambda: UNet(use_skips=True), "part4_unet_skips_on"),
     ]
     if not args.skip_part3:
-        contenders.insert(0, ("encoder-decoder (part3)", SegAutoencoder, "part4_encdec"))
+        contenders.insert(
+            0, ("encoder-decoder (part3)", SegAutoencoder, "part4_encdec")
+        )
 
     for label, build, stem in contenders:
-        torch.manual_seed(0)          # same init draw for every contender
+        torch.manual_seed(0)  # same init draw for every contender
         model = build()
         print(f"=== {label} -- {count_params(model):,} parameters ===")
         # The label budget is part of the run's identity: without it in the
@@ -297,14 +343,28 @@ def main():
             load_weights(model, key)
             model.to(device)
         else:
-            with tracked(label, config=dict(part=4, arch=stem,
-                                            params=count_params(model),
-                                            skips=isinstance(model, UNet) and model.use_skips,
-                                            epochs=args.epochs, lr=1e-3,
-                                            n_train=len(train_ds))) as run:
-                history = train(model, train_loader, device, loss_fn,
-                                epochs=args.epochs, lr=1e-3, run=run,
-                                eval_fn=seg_probe(test_loader))
+            with tracked(
+                label,
+                config=dict(
+                    part=4,
+                    arch=stem,
+                    params=count_params(model),
+                    skips=isinstance(model, UNet) and model.use_skips,
+                    epochs=args.epochs,
+                    lr=1e-3,
+                    n_train=len(train_ds),
+                ),
+            ) as run:
+                history = train(
+                    model,
+                    train_loader,
+                    device,
+                    loss_fn,
+                    epochs=args.epochs,
+                    lr=1e-3,
+                    run=run,
+                    eval_fn=seg_probe(test_loader),
+                )
 
         acc, iou, miou = evaluate_seg(model, test_loader)
         print_metrics("test", acc, iou, miou)
@@ -312,8 +372,9 @@ def main():
         table.append((label, count_params(model), acc, iou, miou))
         if not args.eval:
             save_weights(model, key)
-            save_history(key, label.strip(), count_params(model),
-                         history, (acc, iou, miou))
+            save_history(
+                key, label.strip(), count_params(model), history, (acc, iou, miou)
+            )
 
         x, y, pred = predict_batch(model, test_loader)
         if not rows:
@@ -353,7 +414,9 @@ def main():
     print("a diffusion model. The encoder-decoder-with-skips shape is the")
     print("standard answer whenever the output is an image.")
 
-    show_grid(rows, titles, suptitle="Segmentation: the skip connections are the difference")
+    show_grid(
+        rows, titles, suptitle="Segmentation: the skip connections are the difference"
+    )
     zoom_figure(rows, titles, y)
     finish("part4")
 

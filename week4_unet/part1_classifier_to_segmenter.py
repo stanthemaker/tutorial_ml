@@ -99,10 +99,26 @@ import argparse
 import torch
 import torch.nn as nn
 
-from common import (CLASS_SHORT, IMAGE_SIZE, N_CLASSES, colorize_batch,
-                    count_params, evaluate_seg, finish, get_device, load_pet,
-                    load_weights, make_loaders, predict_batch, print_metrics,
-                    save_weights, seg_probe, show_grid, tracked, train)
+from common import (
+    CLASS_SHORT,
+    IMAGE_SIZE,
+    N_CLASSES,
+    colorize_batch,
+    count_params,
+    evaluate_seg,
+    finish,
+    get_device,
+    load_pet,
+    load_weights,
+    make_loaders,
+    predict_batch,
+    print_metrics,
+    save_weights,
+    seg_probe,
+    show_grid,
+    tracked,
+    train,
+)
 
 
 class Constant(nn.Module):
@@ -116,7 +132,7 @@ class Constant(nn.Module):
     def __init__(self, cls=1):
         super().__init__()
         self.cls = cls
-        self.dummy = nn.Parameter(torch.zeros(1))   # so .parameters() is non-empty
+        self.dummy = nn.Parameter(torch.zeros(1))  # so .parameters() is non-empty
 
     def forward(self, x):
         out = torch.zeros(x.size(0), N_CLASSES, *x.shape[2:], device=x.device)
@@ -149,14 +165,21 @@ def fcn(width=32):
     common bug in this file.
     """
     return nn.Sequential(
-        nn.Conv2d(3, width, 3, padding=1), nn.BatchNorm2d(width), nn.ReLU(),
+        nn.Conv2d(3, width, 3, padding=1),
+        nn.BatchNorm2d(width),
+        nn.ReLU(),
         nn.MaxPool2d(2),
-        nn.Conv2d(width, width * 2, 3, padding=1), nn.BatchNorm2d(width * 2), nn.ReLU(),
+        nn.Conv2d(width, width * 2, 3, padding=1),
+        nn.BatchNorm2d(width * 2),
+        nn.ReLU(),
         nn.MaxPool2d(2),
-        nn.Conv2d(width * 2, width * 4, 3, padding=1), nn.BatchNorm2d(width * 4), nn.ReLU(),
+        nn.Conv2d(width * 2, width * 4, 3, padding=1),
+        nn.BatchNorm2d(width * 4),
+        nn.ReLU(),
         nn.MaxPool2d(2),
         nn.Conv2d(width * 4, N_CLASSES, kernel_size=1),
-        nn.Upsample(scale_factor=8, mode="bilinear", align_corners=False),
+        # TODO:
+        # nn.Upsample(scale_factor=_, mode="_", align_corners=False),
     )
 
 
@@ -164,8 +187,10 @@ def show_shape_contract(x, y):
     """Print the shapes going into the loss. Every error in this file is here."""
     print("the shape contract:")
     print(f"  image   {tuple(x.shape)}  {x.dtype}  in [{x.min():.2f}, {x.max():.2f}]")
-    print(f"  mask    {tuple(y.shape)}      {y.dtype}  values "
-          f"{sorted(torch.unique(y).tolist())}")
+    print(
+        f"  mask    {tuple(y.shape)}      {y.dtype}  values "
+        f"{sorted(torch.unique(y).tolist())}"
+    )
     print("  logits  (N, 3, 96, 96) float, raw scores -- no Sigmoid, no Softmax")
     print("  The mask has no channel axis and is not one-hot: CrossEntropyLoss")
     print("  wants the class INDEX at each pixel.\n")
@@ -194,11 +219,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epochs", type=int, default=8)
     parser.add_argument("--lr", type=float, default=3e-3)
-    parser.add_argument("--n-train", type=int, default=None,
-                        help="subset size for a quicker run (default: all 3,680)")
-    parser.add_argument("--eval", action="store_true",
-                        help="skip training: load checkpoints/part1_fcn.pt and "
-                             "print the same table and figure")
+    parser.add_argument(
+        "--n-train",
+        type=int,
+        default=None,
+        help="subset size for a quicker run (default: all 3,680)",
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load checkpoints/part1_fcn.pt and "
+        "print the same table and figure",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(0)
@@ -232,13 +264,27 @@ def main():
     else:
         # The same CrossEntropyLoss as Weeks 2 and 3, now scoring 9,216 pixels
         # instead of one image.
-        with tracked("classifier -> FCN", config=dict(part=1, arch="fcn",
-                                                      params=count_params(model),
-                                                      epochs=args.epochs, lr=args.lr,
-                                                      n_train=len(train_ds))) as run:
-            train(model, train_loader, device, nn.CrossEntropyLoss(),
-                  epochs=args.epochs, lr=args.lr, run=run,
-                  eval_fn=seg_probe(test_loader))
+        with tracked(
+            "classifier -> FCN",
+            config=dict(
+                part=1,
+                arch="fcn",
+                params=count_params(model),
+                epochs=args.epochs,
+                lr=args.lr,
+                n_train=len(train_ds),
+            ),
+        ) as run:
+            train(
+                model,
+                train_loader,
+                device,
+                nn.CrossEntropyLoss(),
+                epochs=args.epochs,
+                lr=args.lr,
+                run=run,
+                eval_fn=seg_probe(test_loader),
+            )
         save_weights(model, key)
 
     acc, iou, miou = evaluate_seg(model, test_loader)
@@ -278,9 +324,11 @@ def main():
     print("\nPart 2 replaces that Upsample with something that learns.")
 
     x, y, pred = predict_batch(model, test_loader)
-    show_grid([x, colorize_batch(y), colorize_batch(pred)],
-              ["photo", "truth", "FCN"],
-              suptitle="A classifier with its head replaced: right animal, 8-pixel answers")
+    show_grid(
+        [x, colorize_batch(y), colorize_batch(pred)],
+        ["photo", "truth", "FCN"],
+        suptitle="A classifier with its head replaced: right animal, 8-pixel answers",
+    )
     finish("part1")
 
 
