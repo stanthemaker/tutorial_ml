@@ -122,16 +122,16 @@ from part3_cnn_cifar10 import evaluate, get_device
 # which directory you launched python from.
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_ROOT = os.path.join(HERE, "data")
-CHECKPOINTS = os.path.join(HERE, "checkpoints")   # weights (*.pt, gitignored)
-RESULTS = os.path.join(HERE, "results")           # one JSON history per run
+CHECKPOINTS = os.path.join(HERE, "checkpoints")  # weights (*.pt, gitignored)
+RESULTS = os.path.join(HERE, "results")  # one JSON history per run
 
 # 18,000 + 2,000 = the same 20,000-image budget part3 used, so the comparison
 # against part3's numbers is honest. We are not fixing overfitting by quietly
 # adding data -- every config below sees exactly these 18,000 photos.
 N_TRAIN = 18000
 N_VAL = 2000
-N_PROBE = 2000   # training images re-measured cleanly, for the train curve
-SPLIT_SEED = 0   # fixed: every config must get the identical split
+N_PROBE = 2000  # training images re-measured cleanly, for the train curve
+SPLIT_SEED = 0  # fixed: every config must get the identical split
 
 
 def build_transform(augment):
@@ -154,12 +154,15 @@ def build_transform(augment):
     if not augment:
         return transforms.Compose([transforms.ToTensor(), normalize])
     # Crop and flip act on the PIL image, so they come before ToTensor.
-    return transforms.Compose([
-        # transforms.RandomCrop(32, padding=4),
-        # transforms._(),
-        # transforms._(),
-        # normalize,
-    ])
+    return transforms.Compose(
+        [
+            # TODO:
+            # transforms.RandomCrop(32, padding=4),
+            # transforms._(),
+            # transforms._(),
+            # normalize,
+        ]
+    )
 
 
 def make_splits(augment):
@@ -175,24 +178,31 @@ def make_splits(augment):
     batches instead would make an augmented run look artificially worse at
     memorising, and the whole point is to compare gaps between configs.
     """
-    augmented = datasets.CIFAR10(root=DATA_ROOT, train=True, download=True,
-                                 transform=build_transform(augment))
-    clean = datasets.CIFAR10(root=DATA_ROOT, train=True, download=True,
-                             transform=build_transform(False))
+    augmented = datasets.CIFAR10(
+        root=DATA_ROOT, train=True, download=True, transform=build_transform(augment)
+    )
+    clean = datasets.CIFAR10(
+        root=DATA_ROOT, train=True, download=True, transform=build_transform(False)
+    )
 
-    order = torch.randperm(len(clean), generator=torch.Generator().manual_seed(SPLIT_SEED))
+    order = torch.randperm(
+        len(clean), generator=torch.Generator().manual_seed(SPLIT_SEED)
+    )
     train_idx = order[:N_TRAIN].tolist()
-    val_idx = order[N_TRAIN:N_TRAIN + N_VAL].tolist()
+    val_idx = order[N_TRAIN : N_TRAIN + N_VAL].tolist()
 
-    return (Subset(augmented, train_idx),
-            Subset(clean, val_idx),
-            Subset(clean, train_idx[:N_PROBE]))
+    return (
+        Subset(augmented, train_idx),
+        Subset(clean, val_idx),
+        Subset(clean, train_idx[:N_PROBE]),
+    )
 
 
 def load_test():
     """CIFAR-10's separate test files. Called once, at the very end."""
-    return datasets.CIFAR10(root=DATA_ROOT, train=False, download=True,
-                            transform=build_transform(False))
+    return datasets.CIFAR10(
+        root=DATA_ROOT, train=False, download=True, transform=build_transform(False)
+    )
 
 
 def build_model(dropout=0.0):
@@ -223,9 +233,15 @@ def build_model(dropout=0.0):
     it.
     """
     layers = [
-        nn.Conv2d(3, 32, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-        nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
-        nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.ReLU(), nn.MaxPool2d(2),
+        nn.Conv2d(3, 32, kernel_size=3, padding=1),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Conv2d(32, 64, kernel_size=3, padding=1),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
+        nn.Conv2d(64, 64, kernel_size=3, padding=1),
+        nn.ReLU(),
+        nn.MaxPool2d(2),
         nn.Flatten(),
     ]
     if dropout > 0:
@@ -279,13 +295,16 @@ def train(model, train_loader, probe_loader, val_loader, epochs, weight_decay, l
         if history["val"][-1] > best_val:
             best_val = history["val"][-1]
             history["best_epoch"] = epoch + 1
-            best_state = {k: v.detach().cpu().clone()
-                          for k, v in model.state_dict().items()}
+            best_state = {
+                k: v.detach().cpu().clone() for k, v in model.state_dict().items()
+            }
 
-        print(f"  epoch {epoch + 1:3d}/{epochs}  loss {history['loss'][-1]:.4f}"
-              f"  train {history['train'][-1]:.3f}  val {history['val'][-1]:.3f}"
-              f"  gap {history['train'][-1] - history['val'][-1]:+.3f}"
-              f"{'  <- best' if history['best_epoch'] == epoch + 1 else ''}")
+        print(
+            f"  epoch {epoch + 1:3d}/{epochs}  loss {history['loss'][-1]:.4f}"
+            f"  train {history['train'][-1]:.3f}  val {history['val'][-1]:.3f}"
+            f"  gap {history['train'][-1] - history['val'][-1]:+.3f}"
+            f"{'  <- best' if history['best_epoch'] == epoch + 1 else ''}"
+        )
 
     # The model we keep is the one validation liked best, not the one that
     # happened to be in memory when the loop ran out. Note that this choice is
@@ -297,9 +316,9 @@ def train(model, train_loader, probe_loader, val_loader, epochs, weight_decay, l
 
 CONFIGS = {
     "baseline": dict(augment=False, regularize=False, label="A: baseline (part3)"),
-    "aug":      dict(augment=True,  regularize=False, label="B: + augmentation"),
-    "reg":      dict(augment=False, regularize=True,  label="C: + dropout & weight decay"),
-    "aug_reg":  dict(augment=True,  regularize=True,  label="D: both"),
+    "aug": dict(augment=True, regularize=False, label="B: + augmentation"),
+    "reg": dict(augment=False, regularize=True, label="C: + dropout & weight decay"),
+    "aug_reg": dict(augment=True, regularize=True, label="D: both"),
 }
 
 DROPOUT = 0.5
@@ -307,15 +326,21 @@ WEIGHT_DECAY = 5e-4
 
 
 def config_key(augment, regularize):
-    return {(False, False): "baseline", (True, False): "aug",
-            (False, True): "reg", (True, True): "aug_reg"}[(augment, regularize)]
+    return {
+        (False, False): "baseline",
+        (True, False): "aug",
+        (False, True): "reg",
+        (True, True): "aug_reg",
+    }[(augment, regularize)]
 
 
 def run_config(key, args, device):
     """Train one configuration end to end and return its history and model."""
     cfg = CONFIGS[key]
-    print(f"\n=== {cfg['label']} "
-          f"(augment={cfg['augment']}, regularize={cfg['regularize']}) ===")
+    print(
+        f"\n=== {cfg['label']} "
+        f"(augment={cfg['augment']}, regularize={cfg['regularize']}) ==="
+    )
 
     train_ds, val_ds, probe_ds = make_splits(cfg["augment"])
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True)
@@ -331,9 +356,14 @@ def run_config(key, args, device):
         n = sum(p.numel() for p in model.parameters())
         print(f"parameters: {n:,}  (identical to part3)")
 
-    history = train(model, train_loader, probe_loader, val_loader,
-                    epochs=args.epochs,
-                    weight_decay=WEIGHT_DECAY if cfg["regularize"] else 0.0)
+    history = train(
+        model,
+        train_loader,
+        probe_loader,
+        val_loader,
+        epochs=args.epochs,
+        weight_decay=WEIGHT_DECAY if cfg["regularize"] else 0.0,
+    )
 
     if not args.no_save:
         os.makedirs(CHECKPOINTS, exist_ok=True)
@@ -354,10 +384,16 @@ def load_config(key, device):
     cfg = CONFIGS[key]
     path = os.path.join(CHECKPOINTS, f"part6_{key}.pt")
     if not os.path.exists(path):
-        flags = {"baseline": "", "aug": " --augment", "reg": " --regularize",
-                 "aug_reg": " --augment --regularize"}[key]
-        raise SystemExit(f"{path} not found -- run "
-                         f"'python part6_cnn_overfitting.py{flags}' once to train it")
+        flags = {
+            "baseline": "",
+            "aug": " --augment",
+            "reg": " --regularize",
+            "aug_reg": " --augment --regularize",
+        }[key]
+        raise SystemExit(
+            f"{path} not found -- run "
+            f"'python part6_cnn_overfitting.py{flags}' once to train it"
+        )
     model = build_model(dropout=DROPOUT if cfg["regularize"] else 0.0).to(device)
     # map_location: a checkpoint saved on a GPU box still loads on a laptop.
     model.load_state_dict(torch.load(path, map_location=device))
@@ -370,14 +406,28 @@ def plot_gap(ax, history, title):
     epochs = range(1, len(history["train"]) + 1)
     ax.plot(epochs, history["train"], color="tab:blue", label="train (seen)")
     ax.plot(epochs, history["val"], color="tab:orange", label="validation (unseen)")
-    ax.fill_between(epochs, history["val"], history["train"],
-                    color="tab:red", alpha=0.15, label="overfitting gap")
+    ax.fill_between(
+        epochs,
+        history["val"],
+        history["train"],
+        color="tab:red",
+        alpha=0.15,
+        label="overfitting gap",
+    )
     best = history["best_epoch"]
-    ax.axvline(best, color="tab:green", linestyle="--", linewidth=1,
-               label=f"best val (epoch {best})")
+    ax.axvline(
+        best,
+        color="tab:green",
+        linestyle="--",
+        linewidth=1,
+        label=f"best val (epoch {best})",
+    )
     gap = history["train"][best - 1] - history["val"][best - 1]
-    ax.set_title(f"{title}\nbest val {history['val'][best - 1]:.3f} "
-                 f"at epoch {best}, gap {gap:.3f}", fontsize=10)
+    ax.set_title(
+        f"{title}\nbest val {history['val'][best - 1]:.3f} "
+        f"at epoch {best}, gap {gap:.3f}",
+        fontsize=10,
+    )
     ax.set_xlabel("epoch")
     ax.set_ylabel("accuracy")
     ax.set_ylim(0, 1.02)
@@ -388,10 +438,11 @@ def plot_gap(ax, history, title):
 def plot_single(history, label):
     """The headline figure: the misleading curve next to the honest one."""
     fig, axes = plt.subplots(1, 2, figsize=(11, 4.2))
-    axes[0].plot(range(1, len(history["loss"]) + 1), history["loss"],
-                 color="tab:green")
-    axes[0].set_title("What part3 plotted: training loss\n"
-                      "(it goes down; it always goes down)", fontsize=10)
+    axes[0].plot(range(1, len(history["loss"]) + 1), history["loss"], color="tab:green")
+    axes[0].set_title(
+        "What part3 plotted: training loss\n" "(it goes down; it always goes down)",
+        fontsize=10,
+    )
     axes[0].set_xlabel("epoch")
     axes[0].set_ylabel("cross-entropy")
     axes[0].grid(alpha=0.3)
@@ -405,14 +456,21 @@ def plot_compare(results):
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
     for ax, (key, history) in zip(axes.ravel(), results.items()):
         plot_gap(ax, history, CONFIGS[key]["label"])
-    fig.suptitle("Same architecture, same 18,000 images, same epochs -- "
-                 "only the regularisation differs")
+    fig.suptitle(
+        "Same architecture, same 18,000 images, same epochs -- "
+        "only the regularisation differs"
+    )
     fig.tight_layout()
 
     plt.figure(figsize=(7, 4.5))
     for key, history in results.items():
-        plt.plot(range(1, len(history["val"]) + 1), history["val"],
-                 marker="o", markersize=3, label=CONFIGS[key]["label"])
+        plt.plot(
+            range(1, len(history["val"]) + 1),
+            history["val"],
+            marker="o",
+            markersize=3,
+            label=CONFIGS[key]["label"],
+        )
     plt.title("Validation accuracy: the only curve worth optimising")
     plt.xlabel("epoch")
     plt.ylabel("accuracy on unseen images")
@@ -423,20 +481,37 @@ def plot_compare(results):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--augment", action="store_true",
-                        help="config B: random crop + horizontal flip on training images")
-    parser.add_argument("--regularize", action="store_true",
-                        help="config C: dropout 0.5 before the head + weight decay 5e-4")
-    parser.add_argument("--compare", action="store_true",
-                        help="train all four configs back to back and plot them together")
-    parser.add_argument("--epochs", type=int, default=30,
-                        help="epochs per config (default 30 -- the gap opens by epoch 12)")
+    parser.add_argument(
+        "--augment",
+        action="store_true",
+        help="config B: random crop + horizontal flip on training images",
+    )
+    parser.add_argument(
+        "--regularize",
+        action="store_true",
+        help="config C: dropout 0.5 before the head + weight decay 5e-4",
+    )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="train all four configs back to back and plot them together",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=30,
+        help="epochs per config (default 30 -- the gap opens by epoch 12)",
+    )
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--no-save", action="store_true",
-                        help="skip writing part6_<config>.pt")
-    parser.add_argument("--eval", action="store_true",
-                        help="skip training: load part6_<config>.pt for the chosen "
-                             "config(s) and print the train/val/test table")
+    parser.add_argument(
+        "--no-save", action="store_true", help="skip writing part6_<config>.pt"
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load part6_<config>.pt for the chosen "
+        "config(s) and print the train/val/test table",
+    )
     return parser.parse_args()
 
 
@@ -444,11 +519,15 @@ def main():
     args = parse_args()
     device = get_device()
     print(f"using device: {device}")
-    print(f"train {N_TRAIN} / validation {N_VAL} images, "
-          f"both from CIFAR-10's training pool")
+    print(
+        f"train {N_TRAIN} / validation {N_VAL} images, "
+        f"both from CIFAR-10's training pool"
+    )
     print("the test files stay unopened until every model has finished training")
 
-    keys = list(CONFIGS) if args.compare else [config_key(args.augment, args.regularize)]
+    keys = (
+        list(CONFIGS) if args.compare else [config_key(args.augment, args.regularize)]
+    )
     results = {}
     models = {}
     if args.eval:
@@ -481,9 +560,11 @@ def main():
             best = history["best_epoch"]
             train_acc, val_acc = history["train"][best - 1], history["val"][best - 1]
         test_acc = evaluate(models[key], test_loader)
-        print(f"{CONFIGS[key]['label']:<32}{best:>7}"
-              f"{train_acc:>8.3f}{val_acc:>8.3f}"
-              f"{test_acc:>8.3f}{train_acc - val_acc:>8.3f}")
+        print(
+            f"{CONFIGS[key]['label']:<32}{best:>7}"
+            f"{train_acc:>8.3f}{val_acc:>8.3f}"
+            f"{test_acc:>8.3f}{train_acc - val_acc:>8.3f}"
+        )
 
     # Validation tracks test closely because both are unseen -- that is the
     # whole reason a validation set works as a stand-in for the real thing.
@@ -491,8 +572,10 @@ def main():
     print("that is what lets you tune on validation and still trust the test number.")
 
     if args.eval:
-        print("\n(--eval: the curves need per-epoch history, which only a training "
-              "run has -- nothing to plot)")
+        print(
+            "\n(--eval: the curves need per-epoch history, which only a training "
+            "run has -- nothing to plot)"
+        )
         return
     if args.compare:
         plot_compare(results)

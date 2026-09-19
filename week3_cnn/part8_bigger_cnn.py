@@ -67,21 +67,19 @@ def build_model(widths=(32, 64, 64), convs=1):
     """
     layers, c_in = [], 3
     for width in widths:
-        for _ in range(convs):
-            layers += [
-                nn.Conv2d(c_in, width, kernel_size=3, padding=1, bias=False),
-                nn.BatchNorm2d(width),
-                nn.ReLU(),
-            ]
-            c_in = width
-        layers.append(nn.MaxPool2d(2))
-    layers += [
-        nn.Flatten(),
-        nn.Dropout(DROPOUT),
-        nn.Linear(c_in * 4 * 4, 128),
-        nn.ReLU(),
-        nn.Linear(128, 10),
-    ]
+         # TODO:
+    #     for _ in range(convs):
+    #         layers += [
+    #             three elemments ?         
+    #         ]
+    #         c_in = width
+    #     layers.append(nn.MaxPool2d(2))
+    # layers += [
+    #     two elements ? 
+    #     nn.Linear(c_in * 4 * 4, 128),
+    #     nn.ReLU(),
+    #     nn.Linear(128, 10),
+    # ]
     return nn.Sequential(*layers)
 
 

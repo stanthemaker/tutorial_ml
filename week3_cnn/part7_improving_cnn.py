@@ -133,7 +133,8 @@ def build_model(bn=False, dropout=DROPOUT):
     def block(c_in, c_out):
         layers = [nn.Conv2d(c_in, c_out, kernel_size=3, padding=1, bias=not bn)]
         if bn:
-            layers.append(nn.BatchNorm2d(c_out))
+            # TODO:
+            # layers.append(nn.BatchNorm2d(_))
         return layers + [nn.ReLU(), nn.MaxPool2d(2)]
 
     layers = block(3, 32) + block(32, 64) + block(64, 64) + [nn.Flatten()]
@@ -257,14 +258,15 @@ def train(
         # opposite to the LR. That is a second change riding along with the
         # first; we turn it off so this stage measures the schedule and nothing
         # else.
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer,
-            max_lr=lr,
-            epochs=epochs,
-            steps_per_epoch=len(train_loader),
-            pct_start=0.25,
-            cycle_momentum=False,
-        )
+        # TODO: implement OneCycleLR
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        #     _,
+        #     max_lr=_,
+        #     epochs=_,
+        #     steps_per_epoch=_,
+        #     pct_start=0.25,
+        #     cycle_momentum=False,
+        # )
 
     probe = ActivationProbe(model)
     probe_images = next(iter(probe_loader))[0][:512].to(device)
