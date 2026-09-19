@@ -47,8 +47,8 @@ things: one pixel of the last map covers an 8x8 patch of the original photo.
 This script only *looks* at a model -- it never trains one. Pass the weights
 part3 saved as the one required argument:
 
-    python part3_cnn_cifar10.py                     # trains, writes part3.pt
-    python part5_cnn_cifar10_visualize.py part3.pt
+    python part3_cnn_cifar10.py                     # trains, writes checkpoints/part3.pt
+    python part5_cnn_cifar10_visualize.py checkpoints/part3.pt
 
 Requiring the checkpoint is deliberate. A quick-trained stand-in would still
 draw 27 pretty squares, and you would have no way to tell that you were reading
@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument(
         "checkpoint",
         metavar="MODEL.pt",
-        help="weights to visualise -- run part3_cnn_cifar10.py to produce part3.pt",
+        help="weights to visualise -- run part3_cnn_cifar10.py to produce checkpoints/part3.pt",
     )
     args = parser.parse_args()
     if not os.path.exists(args.checkpoint):

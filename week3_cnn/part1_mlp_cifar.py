@@ -26,6 +26,7 @@ filter so position stops mattering, and reuse it everywhere so you need far
 fewer weights.
 """
 
+import argparse
 import os
 
 import torch
@@ -35,7 +36,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 
 # Checkpoints land next to this file, never in the current working directory.
-WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "part1.pt")
+WEIGHTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "checkpoints", "part1.pt")
 
 CLASSES = [
     "plane", "car", "bird", "cat", "deer",
@@ -160,54 +161,81 @@ def plot_sample_predictions(model, test_ds, n=10):
     fig.tight_layout()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="skip training: load checkpoints/part1.pt and go straight to the plots",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = parse_args()
     torch.manual_seed(0)
 
     device = get_device()
     print(f"using device: {device}")
 
-    train_ds = load_cifar10(train=True, n_subset=20000)
     test_ds = load_cifar10(train=False)
-    train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
     test_loader = DataLoader(test_ds, batch_size=256)
 
     mlp = build_mlp().to(device)
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(mlp.parameters(), lr=0.001)
 
     # The count that makes the point: over 1.5M weights, almost all in the first
     # 3072 -> 512 matrix -- and it still won't be enough on natural images.
     n_params = sum(p.numel() for p in mlp.parameters())
     print(f"MLP parameters: {n_params:,}")
 
-    losses = []
-    for epoch in range(15):
-        mlp.train()
-        epoch_loss = 0.0
-        for images, labels in train_loader:
-            images, labels = images.to(device), labels.to(device)
-            loss = loss_fn(mlp(images), labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-        losses.append(epoch_loss / len(train_loader))
-        print(f"epoch {epoch + 1}/15  loss {losses[-1]:.4f}")
+    if args.eval:
+        if not os.path.exists(WEIGHTS):
+            raise SystemExit(f"{WEIGHTS} not found -- run 'python part1_mlp_cifar.py' "
+                             "once without --eval to train and save it")
+        try:
+            # map_location: a checkpoint saved on a GPU box still loads on a laptop.
+            mlp.load_state_dict(torch.load(WEIGHTS, map_location=device))
+        except RuntimeError as err:
+            # Almost always a checkpoint saved by an older version of this file.
+            raise SystemExit(f"{WEIGHTS} does not match this file's model -- retrain "
+                             f"with 'python part1_mlp_cifar.py'\n\n{err}")
+        print(f"loaded weights from {WEIGHTS} (skipping training)")
+        losses = None
+    else:
+        train_ds = load_cifar10(train=True, n_subset=20000)
+        train_loader = DataLoader(train_ds, batch_size=128, shuffle=True)
+        loss_fn = nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(mlp.parameters(), lr=0.001)
+
+        losses = []
+        for epoch in range(15):
+            mlp.train()
+            epoch_loss = 0.0
+            for images, labels in train_loader:
+                images, labels = images.to(device), labels.to(device)
+                loss = loss_fn(mlp(images), labels)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                epoch_loss += loss.item()
+            losses.append(epoch_loss / len(train_loader))
+            print(f"epoch {epoch + 1}/15  loss {losses[-1]:.4f}")
+
+        # Keep the weights: the templates plotted below are worth coming back to
+        # once you have seen what the CNN learns instead.
+        torch.save(mlp.state_dict(), WEIGHTS)
+        print(f"saved weights to {WEIGHTS}")
 
     acc = evaluate(mlp, test_loader)
     print(f"\nTest accuracy: {acc:.2%}  (chance is 10%; the Week 3 CNN clears 70%+)")
 
-    # Keep the weights: the templates plotted below are worth coming back to
-    # once you have seen what the CNN learns instead.
-    torch.save(mlp.state_dict(), WEIGHTS)
-    print(f"saved weights to {WEIGHTS}")
-
-    # View 1: the loss curve and how low the ceiling is.
-    plt.figure()
-    plt.plot(losses, marker="o", color="crimson")
-    plt.title(f"CIFAR-10 MLP training loss (test acc {acc:.1%}, {n_params:,} params)")
-    plt.xlabel("epoch")
-    plt.ylabel("cross-entropy")
+    # View 1: the loss curve and how low the ceiling is (only if we trained).
+    if losses is not None:
+        plt.figure()
+        plt.plot(losses, marker="o", color="crimson")
+        plt.title(f"CIFAR-10 MLP training loss (test acc {acc:.1%}, {n_params:,} params)")
+        plt.xlabel("epoch")
+        plt.ylabel("cross-entropy")
 
     # View 2: sample guesses, so the low number has faces attached to it.
     plot_sample_predictions(mlp, test_ds, n=10)

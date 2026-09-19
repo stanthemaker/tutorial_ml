@@ -1,0 +1,8 @@
+# Week 4 - Segmentation with U-Net
+# Install with:  pip install -r requirements.txt
+torch
+torchvision
+matplotlib
+numpy
+trackio          # per-epoch curves; the parts run without it, just unlogged
+python-pptx      # only for slides/build_slides.py
