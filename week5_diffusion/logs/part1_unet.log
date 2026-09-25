@@ -1,0 +1,29 @@
+device mps  images 60,000  parameters 4,586,449  steps/epoch 468
+* Trackio project initialized: week5-diffusion
+* Trackio metrics logged to: /Users/wengweishan/.cache/huggingface/trackio
+* View dashboard by running in your terminal:
+[1m[38;5;208mtrackio show --project "week5-diffusion"[0m
+* or by running in Python: trackio.show(project="week5-diffusion")
+* Created new run: dainty-sunset-0
+epoch   1  loss 0.0808  96.6s
+epoch   2  loss 0.0307  97.0s
+epoch   3  loss 0.0260  95.7s
+epoch   4  loss 0.0240  96.1s
+epoch   5  loss 0.0229  95.8s
+epoch   6  loss 0.0219  96.0s
+epoch   7  loss 0.0212  95.9s
+epoch   8  loss 0.0210  95.9s
+epoch   9  loss 0.0203  95.9s
+epoch  10  loss 0.0197  96.3s
+epoch  11  loss 0.0197  96.1s
+epoch  12  loss 0.0198  96.2s
+epoch  13  loss 0.0190  96.1s
+epoch  14  loss 0.0190  96.1s
+epoch  15  loss 0.0186  96.0s
+epoch  16  loss 0.0187  96.0s
+epoch  17  loss 0.0185  97.2s
+epoch  18  loss 0.0184  97.9s
+epoch  19  loss 0.0182  95.9s
+epoch  20  loss 0.0183  95.8s
+* Run finished. Uploading logs to Trackio (please wait...)
+saved /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/checkpoints/diffusion_mnist.pt

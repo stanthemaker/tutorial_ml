@@ -1,0 +1,9 @@
+{
+ "ddpm_1000steps_w1": {
+  "sampler": "ddpm",
+  "network_calls": 1000,
+  "guidance": 1.0,
+  "digits": 80,
+  "seconds": 57.75
+ }
+}

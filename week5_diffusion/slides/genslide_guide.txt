@@ -1,0 +1,8 @@
+1. for each model structure (exluding just layer change), 
+use diagram to show model shape and input, output shape
+2. for each concept,
+    (a) high-level what do we want to solve
+    (b) high-level idea of the concept and why it would help solve
+    (c) show math (in latex form so it's readable)
+    (d) show proof evidence of improvemnt with trackio training detail or inference result
+

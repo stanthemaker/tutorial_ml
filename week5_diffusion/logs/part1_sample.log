@@ -1,0 +1,11 @@
+loaded /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/checkpoints/part1_unet.pt  (trained 20 epochs)
+80 digits, 50 network calls, 5.2s  ->  /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/results/part1_unet/samples_ddim_w3.png
+rows: 0 1 2 3 4 5 6 7 8 9
+trajectory (left = noise, right = digit)  ->  /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/results/part1_unet/trajectory_ddim.png
+loaded /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/checkpoints/part1_unet.pt  (trained 20 epochs)
+80 digits, 50 network calls, 2.7s  ->  /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/results/part1_unet/samples_ddim_w1.png
+rows: 0 1 2 3 4 5 6 7 8 9
+loaded /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/checkpoints/part1_unet.pt  (trained 20 epochs)
+80 digits, 1000 network calls, 57.8s  ->  /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/results/part1_unet/samples_ddpm_w1.png
+rows: 0 1 2 3 4 5 6 7 8 9
+trajectory (left = noise, right = digit)  ->  /Users/wengweishan/Desktop/tutorial_ml/week5_diffusion/results/part1_unet/trajectory_ddpm.png

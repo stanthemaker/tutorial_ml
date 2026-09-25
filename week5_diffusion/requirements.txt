@@ -1,0 +1,8 @@
+# Week 5 - Diffusion on MNIST
+# pip install -r requirements.txt
+torch
+torchvision
+matplotlib
+numpy
+trackio
+python-pptx      # only for slides/build_slides.py

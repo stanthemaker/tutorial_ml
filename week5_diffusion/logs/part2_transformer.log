@@ -1,0 +1,20 @@
+part2_transformer  device mps  images 60,000  parameters 4,654,852  steps/epoch 468
+* Trackio project initialized: week5-diffusion
+* Trackio metrics logged to: /Users/wengweishan/.cache/huggingface/trackio
+* View dashboard by running in your terminal:
+[1m[38;5;208mtrackio show --project "week5-diffusion"[0m
+* or by running in Python: trackio.show(project="week5-diffusion")
+* Created new run: part2_transformer
+epoch   1  loss 0.0952  420.4s
+epoch   2  loss 0.0401  414.1s
+epoch   3  loss 0.0381  413.4s
+epoch   4  loss 0.0372  409.2s
+epoch   5  loss 0.0363  410.1s
+epoch   6  loss 0.0351  409.3s
+epoch   7  loss 0.0348  419.8s
+epoch   8  loss 0.0340  412.4s
+epoch   9  loss 0.0313  404.5s
+epoch  10  loss 0.0249  421.7s
+epoch  11  loss 0.0217  429.5s
+epoch  12  loss 0.0207  415.4s
+epoch  13  loss 0.0195  412.1s
