@@ -347,11 +347,9 @@ EQ_WEIGHT = (r"$\|\,\hat\epsilon-\epsilon\,\|^2\ =\ \frac{\bar\alpha_t}{1-\bar\a
              r"\ \|\,\hat{x}_0-x_0\,\|^2$")
 EQ_QKV = r"$Q=h\,W_Q,\qquad K=h\,W_K,\qquad V=h\,W_V$"
 EQ_ATTN = r"$\mathrm{Attn}(h)=\mathrm{softmax}\left(\frac{Q\,K^{T}}{\sqrt{d}}\right)V$"
-EQ_ADALN = (r"$h\ \leftarrow\ h+\mathrm{gate}\odot\mathrm{Attn}\left(\mathrm{LN}(h)\odot"
-            r"(1+\mathrm{scale})+\mathrm{shift}\right)$")
 ALL_EQS = [EQ_SCHEDULE, EQ_FORWARD, EQ_LOSS, EQ_BLOCK, EQ_TIME, EQ_EMB, EQ_DDPM,
            EQ_GUIDE, EQ_X0, EQ_JUMP,
-           EQ_X0_FROM_EPS, EQ_EPS_FROM_X0, EQ_WEIGHT, EQ_QKV, EQ_ATTN, EQ_ADALN]
+           EQ_X0_FROM_EPS, EQ_EPS_FROM_X0, EQ_WEIGHT, EQ_QKV, EQ_ATTN]
 
 
 # ------------------------------------------------------------------ data
@@ -846,14 +844,14 @@ def fig_images(path, items, height=4.0):
 # ------------------------------------------------------------------ part 2 figures
 
 def load_dit():
-    """Part 2's checkpoint if it exists (with its epoch), else an untrained DiT."""
+    """Part 2's checkpoint if it exists, else an untrained DiT."""
     if os.path.exists(CKPT2):
         ckpt = torch.load(CKPT2, map_location="cpu")
         c = ckpt["config"]
         model = DiT(dim=c["dim"], depth=c["depth"], heads=c["heads"], patch=c["patch"])
         model.load_state_dict(ckpt["model"])
-        return model.eval(), ckpt["epoch"]
-    return DiT().eval(), 0
+        return model.eval()
+    return DiT().eval()
 
 
 def dit_shapes(model):
@@ -1024,28 +1022,90 @@ def fig_attention_toy(path, row=2):
     return save(fig, path)
 
 
-def fig_heads(path, n_tok, dim, heads):
-    """Multi-head attention as our block computes it: split, attend, put side by side, Linear."""
-    hd = dim // heads
-    fig, ax = canvas(13, 3.6, (0, 16), (-0.1, 4.5))
-    box(ax, 0.0, 1.7, 1.7, 1.0, f"tokens\n{n_tok} x {dim}", "#9aa3ad", fs=10)
-    box(ax, 2.2, 1.7, 2.1, 1.0, f"Q, K, V\n{n_tok} x {dim} each", C_COOL, fs=10)
-    arrow(ax, (1.7, 2.2), (2.2, 2.2))
-    ax.text(3.25, 2.85, "x W_Q, W_K, W_V", ha="center", fontsize=9, color=LEARNED)
-    for i in range(heads):
-        y = 3.55 - i * 1.05
-        lo, hi = i * hd + 1, (i + 1) * hd
-        box(ax, 5.1, y, 2.3, 0.8, f"numbers {lo}-{hi}", "#9aa3ad", fs=9.5)
-        box(ax, 7.9, y, 3.0, 0.8, f"head {i + 1}: attention\nown {n_tok} x {n_tok} weights",
-            C_COOL, fs=9.5)
-        arrow(ax, (4.3, 2.2), (5.1, y + 0.4), lw=1.1)
-        arrow(ax, (7.4, y + 0.4), (7.9, y + 0.4), lw=1.1)
-        arrow(ax, (10.9, y + 0.4), (11.5, 2.2), lw=1.1)
-    box(ax, 11.5, 1.7, 2.0, 1.0, f"side by side\n{n_tok} x {heads} x {hd}", C_COOL, fs=9.5)
-    box(ax, 14.0, 1.7, 1.95, 1.0, f"Linear\n{dim} -> {dim}", LEARNED, fs=10)
-    arrow(ax, (13.5, 2.2), (14.0, 2.2))
-    ax.text(6.25, -0.05, f"{heads} slices of {hd}", ha="center", fontsize=9.5, color=C_GREY)
-    return save(fig, path)
+def blank_patches(x0, p, far_from):
+    """Token numbers of all-black patches (every pixel -1), and the one furthest
+    from token `far_from` that sits inside the digit's bounding box."""
+    g = IMAGE_SIZE // p
+    patches = x0[0, 0].unfold(0, p, p).unfold(1, p, p).reshape(g * g, -1)
+    blank = (patches == -1).all(1)
+    ink = (~blank).nonzero().flatten()
+    r0, r1 = int(ink.min()) // g, int(ink.max()) // g
+    c0, c1 = int((ink % g).min()), int((ink % g).max())
+    inside = [i for i in blank.nonzero().flatten().tolist()
+              if r0 < i // g < r1 and c0 < i % g < c1]
+    fr, fc = divmod(far_from, g)
+    return max(inside, key=lambda i: abs(i // g - fr) + abs(i % g - fc))
+
+
+def position_stats(model):
+    """Cosine similarity of the learned position rows: matrix, neighbour mean, far mean."""
+    g = IMAGE_SIZE // model.patch
+    rows = torch.nn.functional.normalize(model.pos[0].detach(), dim=1)
+    sim = rows @ rows.T
+    rc = torch.stack(torch.meshgrid(torch.arange(g), torch.arange(g), indexing="ij"), -1).reshape(-1, 2)
+    steps = (rc[:, None, :] - rc[None, :, :]).abs().sum(-1)   # grid steps between two patches
+    return sim, float(sim[steps == 1].mean()), float(sim[steps >= 6].mean())
+
+
+def fig_position(path, model, x0, a=17):
+    """Two all-black patches give identical tokens; the position table tells them apart."""
+    p, g = model.patch, IMAGE_SIZE // model.patch
+    b = blank_patches(x0, p, a)
+    xlim, ylim = (0, 16), (-0.3, 5.4)
+    fig, ax = canvas(14, 14 * 5.7 / 16, xlim, ylim)
+
+    sub = image_at(fig, ax, 0.2, 0.75, 3.9, x0, xlim, ylim)
+    for k in range(1, g):
+        sub.axhline(k * p - 0.5, color=C_GRID, lw=0.3, alpha=0.6)
+        sub.axvline(k * p - 0.5, color=C_GRID, lw=0.3, alpha=0.6)
+    for tok, name, col in ((a, "A", C_COOL), (b, "B", C_WARM)):
+        r, c = divmod(tok, g)
+        sub.add_patch(plt.Rectangle((c * p - 0.5, r * p - 0.5), p, p, fill=False, ec=col, lw=2.4))
+        sub.text(c * p + 0.5, r * p - 1.2, name, ha="center", va="bottom", fontsize=11,
+                 color=col, fontweight="bold")
+    ax.text(2.15, 0.55, "A and B: all black, every pixel -1", ha="center", va="top", fontsize=10)
+
+    with torch.no_grad():
+        tokens = model.patchify(x0).flatten(2).transpose(1, 2)[0]
+    pos = model.pos[0].detach()
+    k, cell = 4, 0.37
+    ch = (pos[a] - pos[b]).abs().topk(k).indices.sort().values   # where the two rows differ most
+    tokens, pos = tokens[:, ch], pos[:, ch]
+    lim = float(torch.cat([tokens[[a, b]], pos[[a, b]], (tokens + pos)[[a, b]]]).abs().max())
+    for tok, name, col, yc in ((a, "A", C_COOL, 3.75), (b, "B", C_WARM, 1.45)):
+        r, c = divmod(tok, g)
+        ax.text(4.45, yc + 0.32, f"{name}: token {tok}", ha="left", va="bottom", fontsize=10,
+                color=col, fontweight="bold")
+        ax.text(4.45, yc + 0.25, f"row {r}, col {c}", ha="left", va="top", fontsize=8.5, color=C_GREY)
+        ax.text(4.45, yc - 0.3, "-1 -1 -1 -1", ha="left", va="center", fontsize=9, family="monospace")
+        box(ax, 5.75, yc - 0.6, 1.0, 0.6, "Linear\n4 -> 176", LEARNED, fs=8.5)
+        arrow(ax, (5.5, yc - 0.3), (5.75, yc - 0.3))
+        arrow(ax, (6.75, yc - 0.3), (6.95, yc - 0.3))
+        top = yc - 0.3 + cell / 2
+        same = "patch numbers\n(the same for A and B)" if name == "A" else ""
+        right, _ = draw_matrix(ax, 6.95, top, tokens[tok:tok + 1], cell, same, lim=lim, fs=7.5)
+        ax.text(right + 0.25, yc - 0.3, "+", ha="center", va="center", fontsize=15, color=C_GREY)
+        right, _ = draw_matrix(ax, right + 0.5, top, pos[tok:tok + 1], cell,
+                               f"position row {tok}", lim=lim, fs=7.5)
+        ax.text(right + 0.25, yc - 0.3, "=", ha="center", va="center", fontsize=15, color=C_GREY)
+        draw_matrix(ax, right + 0.5, top, (tokens + pos)[tok:tok + 1], cell,
+                    "what block 1 gets", lim=lim, fs=7.5)
+    ax.text(9.2, 0.55, f"{k} of the {model.dim} numbers shown: numbers "
+            + ", ".join(str(int(c)) for c in ch) + f",\nwhere rows {a} and {b} of the table differ most",
+            ha="center", va="top", fontsize=9, color=C_GREY)
+
+    sim, _, _ = position_stats(model)
+    hm = fig.add_axes([12.75 / 16, (0.75 - ylim[0]) / (ylim[1] - ylim[0]), 3.1 / 16,
+                       3.1 / (ylim[1] - ylim[0])])
+    hm.imshow(sim[b].reshape(g, g).numpy(), cmap="Oranges", vmin=0, vmax=1)
+    rb, cb = divmod(b, g)
+    hm.add_patch(plt.Rectangle((cb - 0.5, rb - 0.5), 1, 1, fill=False, ec=C_COOL, lw=1.8))
+    hm.set_xticks([]); hm.set_yticks([])
+    ax.text(14.3, 4.15, f"after training: row {b} (B)\ncompared with every row",
+            ha="center", va="bottom", fontsize=10)
+    ax.text(14.3, 0.55, "dark = similar (1 = same direction)\nlight = unrelated (0)",
+            ha="center", va="top", fontsize=9, color=C_GREY)
+    return save(fig, path), a, b
 
 
 def fig_plain_block(path, n_tok, dim, depth):
@@ -1111,96 +1171,6 @@ def fig_dit(path, shapes, n_params, depth, dim):
     return save(fig, path)
 
 
-def fig_dit_block(path, dim, heads):
-    """Inside one transformer block: the attention half, and where e goes."""
-    fig, ax = canvas(13, 4.1, (0, 16), (-0.35, 4.6))
-    y, h = 2.9, 0.95
-    stages = [(0.0, 1.4, f"tokens h\n256 x {dim}", "#9aa3ad"),
-              (1.9, 1.5, "LayerNorm", C_COOL),
-              (3.9, 1.9, "x (1 + scale)\n+ shift", C_WARM),
-              (6.3, 2.2, f"attention\n{heads} heads", C_COOL),
-              (9.0, 1.3, "x gate", C_WARM)]
-    for x, w, label, col in stages:
-        box(ax, x, y, w, h, label, col, fs=10.5)
-    for (x, w, *_), (nx, *_) in zip(stages, stages[1:]):
-        arrow(ax, (x + w, y + h / 2), (nx, y + h / 2))
-    ax.add_patch(plt.Circle((11.0, y + h / 2), 0.3, color=C_GREY))
-    ax.text(11.0, y + h / 2, "+", ha="center", va="center", fontsize=18, color="white")
-    arrow(ax, (10.3, y + h / 2), (10.7, y + h / 2))
-    ax.plot([0.7, 0.7, 11.0], [y + h, y + h + 0.45, y + h + 0.45], color=C_GREY, lw=1.4)
-    arrow(ax, (11.0, y + h + 0.45), (11.0, y + h / 2 + 0.3))
-    ax.text(5.8, y + h + 0.55, "residual: the input is added back, so the block only has to learn a change",
-            ha="center", fontsize=9.5, color=C_GREY)
-    box(ax, 11.8, y, 2.4, h, "same again with\nan MLP instead\nof attention", "#9aa3ad", fs=9.5)
-    arrow(ax, (11.3, y + h / 2), (11.8, y + h / 2))
-    box(ax, 14.6, y, 1.35, h, f"out\n256 x {dim}", "#9aa3ad", fs=10)
-    arrow(ax, (14.2, y + h / 2), (14.6, y + h / 2))
-
-    box(ax, 0.0, 0.35, 1.8, 0.8, f"e\n{dim} numbers", "#e8d6c8", fs=10, tc="#1c222b", alpha=1.0)
-    box(ax, 2.3, 0.35, 2.6, 0.8, f"Linear {dim} -> 6 x {dim}\n(learned)", LEARNED, fs=10)
-    arrow(ax, (1.8, 0.75), (2.3, 0.75))
-    names = ["shift", "scale", "gate", "shift", "scale", "gate"]
-    for i, n in enumerate(names):
-        x = 5.5 + i * 1.1
-        col = C_WARM if i < 3 else "#d9a88c"
-        box(ax, x, 0.45, 1.0, 0.6, f"{n}\n{dim}", col, fs=8.5)
-    arrow(ax, (4.9, 0.75), (5.5, 0.75))
-    arrow(ax, (6.05, 1.05), (4.6, y), color=C_WARM, lw=1.1, ls=":")
-    arrow(ax, (7.15, 1.05), (5.1, y), color=C_WARM, lw=1.1, ls=":")
-    arrow(ax, (8.25, 1.05), (9.6, y), color=C_WARM, lw=1.1, ls=":")
-    ax.text(10.4, 0.38, "(for the MLP half)", ha="center", va="top", fontsize=9, color="#b07a5c")
-    ax.text(12.3, 0.75, "each: one number per channel,\nthe same for all 256 tokens", fontsize=9.5,
-            color=C_WARM, va="center")
-    return save(fig, path)
-
-
-def attention_maps(model, x, t, y, block):
-    """Attention weights of one block: (heads, 256, 256), each row sums to 1."""
-    blk = model.blocks[block]
-    grab = {}
-    hook = blk.qkv.register_forward_hook(lambda _m, _i, out: grab.__setitem__("qkv", out))
-    with torch.no_grad():
-        model(x, t, y)
-    hook.remove()
-    qkv = grab["qkv"][0]                                     # 256 x 3*dim
-    n, d = qkv.shape[0], qkv.shape[1] // 3
-    q, k, _ = qkv.view(n, 3, blk.heads, d // blk.heads).permute(1, 2, 0, 3)
-    return torch.softmax(q @ k.transpose(1, 2) / (d // blk.heads) ** 0.5, dim=-1)
-
-
-def fig_attention(path, model, x0, sched, t=200, block=None):
-    """Where one patch looks: attention weights of a real noisy 7, for two
-    query patches, one map per head."""
-    g = IMAGE_SIZE // model.patch
-    block = len(model.blocks) // 2 if block is None else block
-    noise = torch.randn(x0.shape, generator=torch.Generator().manual_seed(0))
-    xt = sched.add_noise(x0, torch.tensor([t]), noise)
-    att = attention_maps(model, xt, torch.tensor([t]), torch.tensor([7]), block)
-    heads = att.shape[0]
-    queries = [("on the stroke", *example_patch(x0, model.patch)), ("in the background", 13, 2)]
-    fig, axes = plt.subplots(len(queries), heads + 1, figsize=(2.3 * (heads + 1), 2.5 * len(queries)))
-    fig.patch.set_facecolor(PAPER_HEX)
-    for r, (name, qr, qc) in enumerate(queries):
-        show_img(axes[r, 0], xt, f"query patch {name}", fs=10)
-        s = model.patch
-        axes[r, 0].add_patch(plt.Rectangle((qc * s - 0.5, qr * s - 0.5), s, s, fill=False, ec=C_WARM, lw=2.2))
-        for hd in range(heads):
-            a = att[hd, qr * g + qc].view(g, g)
-            ax = axes[r, hd + 1]
-            ax.imshow(((x0.squeeze() + 1) / 2).numpy(), cmap="gray", vmin=0, vmax=1,
-                      extent=(-0.5, g - 0.5, g - 0.5, -0.5), alpha=0.35)
-            ax.imshow(a.numpy(), cmap="Oranges", alpha=0.85, vmin=0, vmax=float(a.max()))
-            ax.add_patch(plt.Rectangle((qc - 0.5, qr - 0.5), 1, 1, fill=False, ec=C_COOL, lw=1.8))
-            ax.set_xticks([]); ax.set_yticks([])
-            for sp in ax.spines.values():
-                sp.set_visible(False)
-            if r == 0:
-                ax.set_title(f"head {hd + 1}", fontsize=10.5, color="#1c222b")
-    fig.suptitle(f"block {block + 1} of {len(model.blocks)}, noisy 7 at t = {t}: darker orange = "
-                 f"more weight (each map sums to 1)", fontsize=11, color="#1c222b")
-    return save(fig, path)
-
-
 def fig_loss_compare(path, log1, log2):
     """Both parts' training loss: per epoch (left) and per minute of training (right)."""
     import numpy as np
@@ -1219,6 +1189,15 @@ def fig_loss_compare(path, log1, log2):
 
 
 # ------------------------------------------------------------------ extra slide types
+
+def slept_note(log):
+    """The epochs whose time was not measured (the Mac slept), if any."""
+    est = (log or {}).get("estimated_seconds")
+    if not est:
+        return ""
+    return (f" Transformer epoch {', '.join(map(str, est))}: the Mac went to sleep mid-epoch, so its time is the "
+            "average of the other epochs.")
+
 
 def not_run_slide(prs, kicker, title, commands, what):
     """The honest placeholder: this slide's evidence does not exist yet."""
@@ -1420,22 +1399,19 @@ def build():
                      cap="Row k: y = k, eight different seeds. Same trained model, 1000-step loop, "
                          "nothing else." + extra)
 
-    part2(prs, tmp, x0, sched, model, train_log, sample_log)
+    part2(prs, tmp, x0, model, train_log)
 
     prs.save(OUT)
     print(f"wrote {OUT}  ({len(prs.slides)} slides)")
 
 
-def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
+def part2(prs, tmp, x0, unet, train_log):
     """Part 2: the same diffusion model with a transformer as the network."""
-    dit, epoch = load_dit()
+    dit = load_dit()
     d_params, u_params = count_params(dit), count_params(unet)
     shapes = dit_shapes(dit)
     n_tok, dim = shapes["block1"]
-    heads = dit.blocks[0].heads
-    head_dim = dim // heads
     log2 = load_json("train_log.json", RESULTS2)
-    sample_log2 = load_json("sample_log.json", RESULTS2) or {}
     planned = 20
 
     section_slide(prs, "PART 2", "Swap the U-Net for a transformer",
@@ -1443,12 +1419,20 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
                   f"network that predicts the noise changes -- sized to the same parameter count: "
                   f"{d_params:,} vs the U-Net's {u_params:,}.")
 
+    # ------------------------------------------------ from an image to tokens
+    figure_slide(prs, "PART 2: THE MODEL", "From an image to tokens",
+                 fig_patches(os.path.join(tmp, "patches.png"), dit, x0),
+                 height=Inches(4.1), top=Inches(1.95),
+                 cap="A token is one patch, described by numbers the network works with. The same Linear "
+                     "is used for every patch. The position table gives each patch its own learned row, "
+                     "so the network knows where the patch sits.")
+
     # ------------------------------------------------ attention, on its own
     toy_h, *_, toy_a, _ = toy_attention()
     toy_terms = " + ".join(f"{w:.2f} v{j + 1}" for j, w in enumerate(toy_a[2].tolist()))
-    flow_slide(prs, "PART 2: ATTENTION (1/3)", "Every token takes a weighted mix of all tokens", [
+    flow_slide(prs, "PART 2: ATTENTION (1/2)", "Every token takes a weighted mix of all tokens", [
         ("lead", "A transformer works on tokens: rows of d numbers, each describing one piece of the "
-                 "input (ours, later: one 2 x 2 patch of the image)."),
+                 f"input (ours: one 2 x 2 patch of the image, so N = {n_tok} and d = {dim})."),
         ("text", "In attention, each token asks a question, every token offers an answer, and how well "
                  "they match decides how much of each answer to take."),
         ("eq", EQ_QKV, 24),
@@ -1464,7 +1448,7 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
                  "tokens to mix."),
     ], tmp)
 
-    figure_slide(prs, "PART 2: ATTENTION (2/3)",
+    figure_slide(prs, "PART 2: ATTENTION (2/2)",
                  f"The same formula, on {len(toy_h)} tokens of {toy_h.shape[1]} numbers",
                  fig_attention_toy(os.path.join(tmp, "attn_toy.png")),
                  height=Inches(4.55), top=Inches(1.8),
@@ -1472,28 +1456,27 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
                      f"output = {toy_terms}  (v_j = row j of V). Each row of weights is different: "
                      "every token decides for itself whom to listen to.")
 
-    s = blank(prs)
-    header(s, "PART 2: ATTENTION (3/3)", "Several heads, each with its own weights")
-    picture(s, fig_heads(os.path.join(tmp, "heads.png"), n_tok, dim, heads),
-            top=Inches(1.85), height=Inches(2.9))
-    bullets(s, [
-        f"Q, K and V are cut into {heads} slices of {head_dim} numbers. Each slice (a head) runs the "
-        f"formula on its own, so it gets its own {n_tok} x {n_tok} weights: one head can follow the "
-        "stroke while another looks at the neighbours. The d in sqrt(d) is the slice size, "
-        f"{head_dim}. Same number of weights as one big head.",
-        f"Cost: every head scores every pair of tokens, N x N. With our {n_tok} tokens that is "
-        f"{n_tok * n_tok:,} scores per head per block. If every pixel were a token it would be "
-        f"1,024 x 1,024 = {1024 * 1024:,}. That is why the image is cut into 2 x 2 patches (next).",
-    ], top=Inches(4.9), size=14.5)
+    flow_slide(prs, "PART 2: WHY ATTENTION", "What attention offers that a convolution does not", [
+        ("text", "1.  The whole image in one step. A 3 x 3 convolution sees only its neighbours; to see "
+                 "far, a CNN needs many layers or must shrink the image (the U-Net goes down to 4 x 4). "
+                 "Attention lets every patch use every other patch, in every block."),
+        ("text", "2.  The mixing is chosen by the input. A convolution applies the same weights to every "
+                 "image. Attention computes its weights from the tokens themselves (previous slide)."),
+        ("text", "3.  Few built-in assumptions, so it keeps improving with more data. A convolution "
+                 "assumes nearby pixels matter most, which helps when data is scarce. Attention must "
+                 "learn even which patches are neighbours (the position table), so it needs more data, "
+                 "but given a lot of data and a bigger model it keeps getting better."),
+        ("text", "4.  One design for every kind of input. Words, image patches and sound all become "
+                 "tokens, and tokens of different kinds can attend to each other: image patches can "
+                 "look at the words of a prompt."),
+        ("text", "5.  Mostly large matrix multiplications, which GPUs are built for."),
+        ("note", f"The price: every token is scored against every token. Our {n_tok} tokens give a "
+                 f"{n_tok} x {n_tok} table of {n_tok * n_tok:,} scores; one token per pixel would give "
+                 f"1,024 x 1,024 = {1024 * 1024:,}. That is why the image is cut into 2 x 2 patches. "
+                 "On a dataset as small as ours, point 3 works against it: see the results."),
+    ], tmp)
 
     # ------------------------------------------------ the transformer that uses it
-    figure_slide(prs, "PART 2: THE MODEL", "From an image to tokens",
-                 fig_patches(os.path.join(tmp, "patches.png"), dit, x0),
-                 height=Inches(4.1), top=Inches(1.95),
-                 cap="A token is one patch, described by numbers the network works with. The same Linear "
-                     "is used for every patch. The position table gives each patch its own learned row, "
-                     "so the network knows where the patch sits.")
-
     s = blank(prs)
     header(s, "PART 2: THE MODEL", "One transformer block: attention, then an MLP")
     picture(s, fig_plain_block(os.path.join(tmp, "plain_block.png"), n_tok, dim, len(dit.blocks)),
@@ -1501,40 +1484,34 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
     bullets(s, [
         f"LN (LayerNorm): rescales each token's {dim} numbers to average 0, spread 1, so every "
         "block gets inputs in the same range.",
-        "Attention: the tokens exchange information (previous slides).   MLP: two Linear layers with "
+        "Attention: the tokens exchange information (attention slides).   MLP: two Linear layers with "
         "a GELU between them, applied to each token on its own, the same weights for all tokens.",
         "Residual: each half's output is added onto its input, so a block only has to learn a change, "
         "and the gradient reaches early blocks directly.",
         "Shape in = shape out, so blocks stack: the whole network is this block, repeated.",
     ], top=Inches(4.45), size=14.5)
 
-    figure_slide(prs, "PART 2: THE MODEL", "Tokens in, tokens out: the size never changes",
+    g = IMAGE_SIZE // dit.patch
+    ex = 74
+    figure_slide(prs, "PART 2: THE MODEL", "Image in, image out: tokens never change order",
                  fig_dit(os.path.join(tmp, "dit.png"), shapes, d_params, len(dit.blocks), dim),
                  height=Inches(3.3), top=Inches(2.1),
-                 cap="The U-Net shrinks the image to 4 x 4 to see far, then grows it back with skips. "
-                     f"The transformer keeps all {n_tok} patches at full detail in every block; attention "
-                     "lets any patch use any other patch directly.")
+                 cap=f"Row i is always patch i: no block reorders the tokens. So at the end, Linear "
+                     f"{dim} -> 4 turns each token into the predicted noise for its own 2 x 2 pixels, and "
+                     f"each patch goes back to its place (token {ex}: grid row {ex // g}, column {ex % g}, "
+                     f"so pixel rows {2 * (ex // g)}-{2 * (ex // g) + 1}, columns "
+                     f"{2 * (ex % g)}-{2 * (ex % g) + 1}). Unlike the U-Net, nothing shrinks: all "
+                     f"{n_tok} patches stay at full detail in every block.")
 
-    s = blank(prs)
-    header(s, "PART 2: HOW t AND y GET IN", "e scales, shifts and gates every block")
-    math_block(s, EQ_ADALN, M, Inches(1.85), tmp, fontsize=24, center=True)
-    picture(s, fig_dit_block(os.path.join(tmp, "dit_block.png"), dim, heads),
-            top=Inches(2.65), height=Inches(3.25))
-    bullets(s, [
-        "The one change to the block on the previous slides.   Circled dot: multiply number by "
-        "number.   shift, scale, gate: made from e by one learned Linear per block.",
-        "Part 1's U-Net block only ADDS e (a shift). Here e also scales, and gates how much each half "
-        "changes the tokens. The gates start at 0, so every block starts as 'do nothing' and training "
-        "switches it on. This is the DiT paper's recipe (Peebles & Xie, 2023), which beat adding e.",
-    ], top=Inches(5.95), size=13.5)
-
-    if epoch:
-        figure_slide(prs, "PART 2: ATTENTION IN THE TRAINED MODEL", "Where one patch looks",
-                     fig_attention(os.path.join(tmp, "attn.png"), dit, x0, sched),
-                     height=Inches(4.2), top=Inches(1.9),
-                     cap=f"Real attention weights from Part 2's checkpoint (after epoch {epoch}). "
-                         "Left: the query patch (orange box). Right: how much weight it gives every "
-                         "patch, one map per head.")
+    pos_png, pa, pb = fig_position(os.path.join(tmp, "position.png"), dit, x0)
+    _, near, far = position_stats(dit)
+    figure_slide(prs, "PART 2: THE MODEL", "The position table: a learned address for each patch",
+                 pos_png, height=Inches(4.0), top=Inches(1.85),
+                 cap=f"Attention compares only what tokens contain, never where they sit. A and B contain "
+                     f"the same 4 numbers, so without the table they would be the same token. Adding row "
+                     f"{pa} vs row {pb} makes them differ. Nobody told the table which patches are "
+                     f"neighbours: after training, rows of neighbouring patches have similarity "
+                     f"{near:.2f} on average, rows 6 or more grid steps apart {far:.2f}.")
 
     u_gf, d_gf = gflops(unet), gflops(dit)
     rows = [["parameters", f"{u_params:,}", f"{d_params:,}"],
@@ -1553,18 +1530,24 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
                 note="GFLOPs: billions of multiplications and additions to process one image once, "
                      "counted by PyTorch. Every transformer weight is used on all "
                      f"{n_tok} tokens; the U-Net's widest layers only run on 4 x 4 = 16 positions. "
-                     "Attention is also slower per GFLOP than convolution on this Mac's GPU.")
+                     "Attention is also slower per GFLOP than convolution on this Mac's GPU."
+                     + slept_note(log2))
 
     if log2:
         done = len(log2["epoch"])
         status = (f"{done} epochs" if done >= planned
                   else f"{done} of {planned} epochs so far (training still running)")
+        if log2.get("resumed_after"):
+            r = log2["resumed_after"]
+            status += (f" (stopped after epoch {r}, then continued from the saved weights: the small "
+                       f"bump at epoch {r + 1})")
         figure_slide(prs, "PART 2: RESULTS", "Training loss: per epoch, and per minute",
                      fig_loss_compare(os.path.join(tmp, "loss_compare.png"), train_log, log2),
                      height=Inches(3.9), top=Inches(1.95),
                      cap=f"Transformer: {status}, final loss {log2['loss'][-1]:.4f}. U-Net: "
                          f"{len(train_log['epoch'])} epochs, final loss {train_log['loss'][-1]:.4f}. "
-                         "Same data, same loss, same recipe, so the numbers compare directly.")
+                         "Same data, same loss, same recipe, so the numbers compare directly."
+                         + slept_note(log2))
         last = log2["epoch"][-1]
         grids = [(p, f"after epoch {e}") for e in sorted({1, (last + 1) // 2, last})
                  if (p := result(f"epoch_{e:02d}.png", RESULTS2))]
@@ -1577,22 +1560,6 @@ def part2(prs, tmp, x0, sched, unet, train_log, sample_log):
     else:
         not_run_slide(prs, "PART 2: RESULTS", "Training loss: per epoch, and per minute",
                       ["python part2_transformer_diffusion.py"], "The loss curve")
-
-    p1, p2 = result("samples_ddpm_w1.png"), result("samples_ddpm_w1.png", RESULTS2)
-    if p1 and p2:
-        t1 = sample_log.get("ddpm_1000steps_w1", {}).get("seconds")
-        t2 = sample_log2.get("ddpm_1000steps_w1", {}).get("seconds")
-        timing = f" 80 digits x 1000 steps: {t1:.0f} s vs {t2:.0f} s." if t1 and t2 else ""
-        figure_slide(prs, "PART 2: RESULTS", "Same request, same seeds: U-Net vs transformer",
-                     fig_images(os.path.join(tmp, "compare.png"),
-                                [(p1, "U-Net (Part 1)"), (p2, "transformer (Part 2)")]),
-                     height=Inches(4.2), top=Inches(1.95),
-                     cap="Row k: y = k. The same 1000-step loop, no guidance, the same starting noise "
-                         "for both." + timing)
-    else:
-        not_run_slide(prs, "PART 2: RESULTS", "Same request, same seeds: U-Net vs transformer",
-                      ["python sample.py --run part2_transformer --sampler ddpm --guidance 1 --trajectory"],
-                      "The transformer's samples")
 
 
 if __name__ == "__main__":

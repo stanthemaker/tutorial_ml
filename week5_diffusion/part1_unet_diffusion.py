@@ -189,6 +189,7 @@ def training_args(description, **network_args):
     p.add_argument("--ema", type=float, default=0.999)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--project", default="week5-diffusion")
+    p.add_argument("--resume", action="store_true", help="continue from the saved checkpoint")
     for flag, (default, help_text) in network_args.items():
         p.add_argument(f"--{flag}", type=int, default=default, help=help_text)
     return p.parse_args()
@@ -207,11 +208,24 @@ def train(model, name, args, device):
     print(f"{name}  device {device}  images {n:,}  parameters {count_params(model):,}  "
           f"steps/epoch {steps_per_epoch}")
 
-    trackio.init(project=args.project, name=name, config={**vars(args), "params": count_params(model)})
     log = {"epoch": [], "loss": [], "seconds": [], "params": count_params(model)}
-    step = 0
+    first = 1
+    if args.resume:
+        # The checkpoint keeps only the EMA weights, so the model and the EMA both
+        # restart from them, and the optimizer's running averages restart from zero.
+        ckpt = torch.load(weights_path(name), map_location=device)
+        model.load_state_dict(ckpt["model"])
+        ema.load_state_dict(ckpt["model"])
+        first = ckpt["epoch"] + 1
+        with open(os.path.join(out, "train_log.json")) as f:
+            log = json.load(f)
+        log["resumed_after"] = ckpt["epoch"]
+    step = (first - 1) * steps_per_epoch
 
-    for epoch in range(1, args.epochs + 1):
+    trackio.init(project=args.project, name=name, config={**vars(args), "params": count_params(model)},
+                 resume="allow" if args.resume else "never")
+
+    for epoch in range(first, args.epochs + 1):
         model.train()
         start, total = time.time(), 0.0
         order = torch.randperm(n, device=device)
