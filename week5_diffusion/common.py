@@ -189,20 +189,22 @@ def predict_noise(model, x, t, y, guidance):
 
 
 @torch.no_grad()
+## TODO: implement DDPM sampler
 def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=None):
-    """DDPM: 1000 steps, fresh random noise added back at every step.
 
-    x_{t-1} = 1/sqrt(alpha_t) * (x_t - beta_t / sqrt(1 - alpha_bar_t) * eps)
-              + sqrt(beta_t) * z
-    """
     n, device = len(labels), labels.device
     x = randn((n, 1, IMAGE_SIZE, IMAGE_SIZE), generator, device)
     for t in reversed(range(sched.T)):
         tt = torch.full((n,), t, device=device, dtype=torch.long)
         eps = predict_noise(model, x, tt, labels, guidance)
-        a, ab, b = sched.alphas[t], sched.alpha_bars[t], sched.betas[t]
-        x = (x - b / (1 - ab).sqrt() * eps) / a.sqrt()
-        if t > 0:
+    
+        # these are the schedule's three numbers at level t (slide 2)
+        beta_t = sched.betas[t]            # β_t: noise step t
+        alpha_t = sched.alphas[t]          # α_t = 1 - β_t
+        alpha_bar_t = sched.alpha_bars[t]  # ᾱ_t = α_1 · ... · α_t
+        # hint1: follow slide 12 to get x_t-1
+    
+        if t > 0: # prevent the last step (t=0) from adding noise
             z = randn(x.shape, generator, device)
             x = x + b.sqrt() * z
         if trajectory is not None:
@@ -214,33 +216,29 @@ def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=N
 def ddim_sample(
     model, sched, labels, steps=50, guidance=3.0, generator=None, trajectory=None
 ):
-    """DDIM: same trained model, visits only `steps` of the 1000 levels and
-    adds no fresh noise. Each step:
-        1. guess the clean digit:  x0 = (x_t - sqrt(1 - ab_t) * eps) / sqrt(ab_t)
-        2. clamp x0 to [-1, 1], the valid pixel range, and recompute the
-           noise that goes with the clamped x0:
-                                   eps = (x_t - sqrt(ab_t) * x0) / sqrt(1 - ab_t)
-        3. jump to the next level: x   = sqrt(ab_next) * x0 + sqrt(1 - ab_next) * eps
-    Step 2's recompute matters with guidance: guidance exaggerates eps, so the
-    raw x0 guess is far out of range at high noise. Clamping x0 but jumping
-    with the old eps mixes two answers that disagree; measured on Part 1's
-    model at w = 3 this turned every sample into scribbles.
-    """
+    ## TODO: implement DDIM sampler
     n, device = len(labels), labels.device
-    x = randn((n, 1, IMAGE_SIZE, IMAGE_SIZE), generator, device)
-    ts = torch.linspace(sched.T - 1, 0, steps).long().tolist()
-    for i, t in enumerate(ts):
+    x = randn((n, 1, IMAGE_SIZE, IMAGE_SIZE), generator, device)  # start: pure noise at t = 999
+    ts = torch.linspace(sched.T - 1, 0, steps).long().tolist() # 999, 978, 958, ..., 20, 0
+    for i, t in enumerate(ts): #  x_t -> x_t-1, repeat 50 times 
         tt = torch.full((n,), t, device=device, dtype=torch.long)
-        eps = predict_noise(model, x, tt, labels, guidance)
-        ab = sched.alpha_bars[t]
-        ab_next = (
+        eps = predict_noise(model, x, tt, labels, guidance) # eps is the predicted noise
+        alpha_t = sched.alpha_bars[t] # this is alpha_t in the slides
+        
+        alpha_t_next = (
             sched.alpha_bars[ts[i + 1]]
             if i + 1 < len(ts)
             else torch.tensor(1.0, device=device)
-        )
-        x0 = ((x - (1 - ab).sqrt() * eps) / ab.sqrt()).clamp(-1, 1)
-        eps = (x - ab.sqrt() * x0) / (1 - ab).sqrt()
-        x = ab_next.sqrt() * x0 + (1 - ab_next).sqrt() * eps
+        ) # this is alpha_t' in the slides
+
+        # hint1: get the clean digit  x0 with ab, eps. use clamp(-1,1) to bound the values
+        # x0 = 
+        # hint2: the clamp changed x0, so x0 and eps no longer add up to x. Recompute the noise
+        #        that goes with the clamped x0: solve the forward formula for eps (slide 7).
+        # eps =
+        # hint3: pretend x0 is the true clean digit and eps the true noise. Noise it to the NEXT
+        #        level with the forward formula (slide 2), using alpha_bar_next. No fresh noise.
+        # x =
         if trajectory is not None:
             trajectory.append((t, x.clamp(-1, 1).cpu()))
     return x.clamp(-1, 1)

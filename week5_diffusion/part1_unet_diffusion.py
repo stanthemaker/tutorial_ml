@@ -272,11 +272,10 @@ def train(model, name, args, device):
             y = torch.where(drop, torch.full_like(y, NULL_LABEL), y)
 
             t = torch.randint(0, sched.T, (len(x0),), device=device)
-            # TODO:
-            # noise, x_t, loss
-            # noise =
-            # x_t = sched.add_noise()
-            # loss = F.mse_loss()
+            # TODO: training loop
+            # hint1: torch.randn_like(x0) generates a randnoise tensor whose shape is identical to x0
+            # hint2: get x_t (noisy + digit image) by sched.add_noise(_,_,_)
+            # hint3: pass x_t to model, output a predicted noise, remember what loss do we want to calculate? 
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
