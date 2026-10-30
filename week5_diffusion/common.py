@@ -28,6 +28,7 @@ strongly, at the cost of less variety.
 
 import math
 import os
+import platform
 
 import torch
 import torch.nn.functional as F
@@ -46,7 +47,9 @@ NULL_LABEL = 10          # the 11th label: "no label given"
 
 
 def weights_path(name):
-    """checkpoints/<name>.pt -- the one place weights live."""
+    """checkpoints/<name>.pt -- the one place weights live. The folder is not in git,
+    so a fresh clone (or a second machine) does not have it yet: create it."""
+    os.makedirs(CKPT_DIR, exist_ok=True)
     return os.path.join(CKPT_DIR, f"{name}.pt")
 
 
@@ -97,14 +100,15 @@ def timestep_embedding(t, dim):
 
 # ---------------------------------------------------------------- data
 
-def load_mnist(device):
-    """All 60,000 training digits as one tensor on the device.
+def load_mnist(device, train=True):
+    """All 60,000 training digits (or, with train=False, the 10,000 test digits)
+    as one tensor on the device.
 
     Pixels 0..255 -> [-1, 1] (so the background is -1, the same range as the
     noise). 28 x 28 is padded with background to 32 x 32, so the U-Net can
     halve it three times: 32 -> 16 -> 8 -> 4.
     """
-    ds = datasets.MNIST(root=DATA, train=True, download=True)
+    ds = datasets.MNIST(root=DATA, train=train, download=True)
     x = ds.data.float().div(127.5).sub(1).unsqueeze(1)                # N x 1 x 28 x 28
     pad = (IMAGE_SIZE - 28) // 2
     x = F.pad(x, (pad, pad, pad, pad), value=-1.0)                    # N x 1 x 32 x 32
@@ -125,6 +129,34 @@ def get_device():
     if torch.cuda.is_available():
         return torch.device("cuda")
     return torch.device("cpu")
+
+
+def device_name(device):
+    """A readable name for the logs, so a timing says which machine it came from."""
+    if device.type == "cuda":
+        return torch.cuda.get_device_name(device)
+    if device.type == "mps":
+        return f"Apple {platform.machine()} GPU (MPS)"
+    return f"CPU ({platform.processor() or platform.machine()})"
+
+
+def sync(device):
+    """Wait for the GPU to finish, so a timing is real (GPU calls return early)."""
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize()
+
+
+@torch.no_grad()
+def warm_up(model, device, batch):
+    """One untimed network call at the batch size about to be timed. The first GPU
+    call pays one-off setup (loading kernels), which would otherwise be charged to
+    whichever sampler runs first -- most visibly to a short one."""
+    x = torch.zeros(batch, 1, IMAGE_SIZE, IMAGE_SIZE, device=device)
+    z = torch.zeros(batch, dtype=torch.long, device=device)
+    model(x, z, z)
+    sync(device)
 
 
 # ---------------------------------------------------------------- sampling
