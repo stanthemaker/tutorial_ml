@@ -95,6 +95,7 @@ from common import (
     NUM_CLASSES,
     NoiseSchedule,
     count_params,
+    device_name,
     get_device,
     load_mnist,
     results_dir,
@@ -228,7 +229,9 @@ def train(model, name, args, device):
         f"steps/epoch {steps_per_epoch}"
     )
 
-    log = {"epoch": [], "loss": [], "seconds": [], "params": count_params(model)}
+    # "device" records which machine the seconds were measured on (Windows GPU vs Mac).
+    log = {"epoch": [], "loss": [], "seconds": [], "params": count_params(model),
+           "device": device_name(device)}
     first = 1
     if args.resume:
         # The checkpoint keeps only the EMA weights, so the model and the EMA both
@@ -240,6 +243,10 @@ def train(model, name, args, device):
         with open(os.path.join(out, "train_log.json")) as f:
             log = json.load(f)
         log["resumed_after"] = ckpt["epoch"]
+        here = device_name(device)
+        if log.get("device", here) != here:            # resumed on another machine
+            log["device"] = f"{log['device']} (epochs 1-{ckpt['epoch']}), then {here}"
+        log.setdefault("device", here)
     step = (first - 1) * steps_per_epoch
 
     trackio.init(

@@ -21,6 +21,7 @@ look the same.
 """
 
 import copy
+import inspect
 import json
 import os
 import sys
@@ -43,7 +44,8 @@ WEEK5 = os.path.dirname(HERE)
 if WEEK5 not in sys.path:                      # so this runs from any folder
     sys.path.insert(0, WEEK5)
 
-from common import IMAGE_SIZE, NoiseSchedule, count_params, load_mnist, timestep_embedding
+from common import (IMAGE_SIZE, NoiseSchedule, count_params, ddim_sample, load_mnist,
+                    timestep_embedding)
 from part1_unet_diffusion import Block, UNet
 from part2_transformer_diffusion import DiT
 
@@ -611,6 +613,145 @@ def fig_inference_flow(path, emb_dim):
     return save(fig, path)
 
 
+# ------------------------------------------------------------------ the two samplers
+# One step of each sampler, drawn on the same canvas with the U-Net in the same
+# place, so the two slides can be flipped between. The noise levels each one
+# visits are computed exactly as common.ddpm_sample / common.ddim_sample do.
+
+DDIM_STEPS = inspect.signature(ddim_sample).parameters["steps"].default
+DIFFERS = C_WARM        # orange outline: the part where the two samplers differ
+
+
+def ddim_levels(T, steps=DDIM_STEPS):
+    """The levels common.ddim_sample visits (same expression as there)."""
+    return torch.linspace(T - 1, 0, steps).long().tolist()
+
+
+def outline(ax, x, y, w, h, color=DIFFERS):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.07,rounding_size=0.12",
+                                fc="none", ec=color, lw=2.4))
+
+
+def levels_strip(ax, levels, T, x0, x1, y, color, lw):
+    """One tick per visited level. t = T-1 (pure noise) on the left, 0 (the digit)
+    on the right -- the same direction as the trajectory picture."""
+    xs = [x0 + (T - 1 - t) / (T - 1) * (x1 - x0) for t in levels]
+    ax.plot([x0, x1], [y, y], color=C_GRID, lw=1.0, zorder=1)
+    ax.vlines(xs, y - 0.22, y + 0.22, color=color, lw=lw, zorder=2)
+    ax.text(x0, y - 0.32, f"t = {T - 1}  (pure noise)", ha="left", va="top", fontsize=10, color=C_GREY)
+    ax.text(x1, y - 0.32, "t = 0  (the digit)", ha="right", va="top", fontsize=10, color=C_GREY)
+
+
+def step_inputs(ax):
+    """The left half both samplers share: x_t and (t, y) into the fixed U-Net."""
+    box(ax, 0.2, 2.75, 2.0, 1.1, "current image $x_t$\n1 x 32 x 32", DATA, fs=11)
+    box(ax, 2.75, 1.55, 1.7, 0.55, "t,  y = 7", DATA, fs=11)
+    box(ax, 2.75, 2.5, 1.7, 1.6, "U-Net", FROZEN, fs=14)
+    arrow(ax, (2.2, 3.3), (2.75, 3.3))
+    arrow(ax, (3.6, 2.1), (3.6, 2.5))
+    arrow(ax, (4.45, 3.3), (5.3, 3.3))
+    ax.text(4.87, 3.42, "$\\hat\\epsilon$", ha="center", fontsize=13)
+
+
+def bypass(ax, to_x):
+    """x_t also goes straight into the arithmetic, around the U-Net."""
+    ax.plot([1.2, 1.2, to_x], [3.85, 4.55, 4.55], color=C_GREY, lw=1.6)
+    arrow(ax, (to_x, 4.55), (to_x, 4.0))
+    ax.text(3.6, 4.62, "$x_t$", ha="center", fontsize=12)
+
+
+def legend_line(ax):
+    ax.text(0.2, 5.3, "blue = the trained U-Net, fixed     grey = fixed arithmetic     "
+            "orange outline = where the two samplers differ",
+            fontsize=10, color="#1c222b", va="top")
+
+
+def fig_ddpm_step(path, T):
+    xlim, ylim = (0, 16), (-0.35, 5.35)
+    fig, ax = canvas(13, 13 * 5.7 / 16, xlim, ylim)
+    legend_line(ax)
+    step_inputs(ax)
+    box(ax, 5.3, 2.6, 3.4, 1.4, "remove a little of $\\hat\\epsilon$\n"
+        "$(x_t-c_t\\,\\hat\\epsilon)\\ /\\ \\sqrt{\\alpha_t}$", DATA, fs=11)
+    bypass(ax, 7.0)
+
+    ax.add_patch(plt.Circle((9.5, 3.3), 0.28, color=C_GREY))
+    ax.text(9.5, 3.3, "+", ha="center", va="center", fontsize=15, color="white")
+    arrow(ax, (8.7, 3.3), (9.22, 3.3))
+    box(ax, 8.65, 1.4, 1.7, 1.0, "fresh noise\n$\\sqrt{\\beta_t}\\ z$", DATA, fs=11)
+    outline(ax, 8.65, 1.4, 1.7, 1.0)
+    arrow(ax, (9.5, 2.47), (9.5, 3.02))
+
+    box(ax, 10.4, 2.75, 2.1, 1.1, "$x_{t-1}$\none level down", "#3d4a5c", fs=11)
+    arrow(ax, (9.78, 3.3), (10.4, 3.3))
+    arrow(ax, (12.5, 3.3), (13.0, 3.3))
+    ax.text(13.1, 3.3, f"becomes the next $x_t$\nrepeat {T} times:\nt = {T - 1}, {T - 2}, ..., 0",
+            ha="left", va="center", fontsize=11, color="#1c222b", linespacing=1.4)
+
+    levels_strip(ax, list(range(T - 1, -1, -1)), T, 0.3, 15.7, 0.55, C_COOL, 0.5)
+    ax.text(0.3, 0.98, f"noise levels visited: all {T}  =  {T} U-Net calls per digit",
+            fontsize=11, color="#1c222b", va="bottom")
+    return save(fig, path)
+
+
+def fig_ddim_step(path, T, levels):
+    xlim, ylim = (0, 16), (-0.35, 5.35)
+    fig, ax = canvas(13, 13 * 5.7 / 16, xlim, ylim)
+    legend_line(ax)
+    step_inputs(ax)
+    box(ax, 5.3, 2.6, 3.5, 1.4, "1. guess the clean digit\n"
+        "$\\hat x_0=(x_t-\\sqrt{1-\\bar\\alpha_t}\\,\\hat\\epsilon)\\,/\\,\\sqrt{\\bar\\alpha_t}$\n"
+        "clamp to [-1, 1]", DATA, fs=10.5)
+    outline(ax, 5.3, 2.6, 3.5, 1.4)
+    bypass(ax, 7.05)
+
+    arrow(ax, (8.87, 3.3), (9.68, 3.3))
+    ax.text(9.27, 3.45, "$\\hat x_0, \\hat\\epsilon$", ha="center", fontsize=11)
+    box(ax, 9.75, 2.6, 3.15, 1.4, "2. jump to the next level $t'$\n"
+        "$\\sqrt{\\bar\\alpha_{t'}}\\,\\hat x_0+\\sqrt{1-\\bar\\alpha_{t'}}\\,\\hat\\epsilon$",
+        DATA, fs=10.5)
+    outline(ax, 9.75, 2.6, 3.15, 1.4)
+    ax.text(11.32, 2.25, "no fresh noise", ha="center", va="top", fontsize=11, color=DIFFERS,
+            style="italic")
+
+    gap = (T - 1) / (len(levels) - 1)
+    box(ax, 13.45, 2.75, 2.25, 1.1, f"$x_{{t'}}$\n~{gap:.0f} levels down", "#3d4a5c", fs=11)
+    arrow(ax, (12.97, 3.3), (13.45, 3.3))
+    ax.text(14.57, 2.6, f"becomes the next $x_t$\nrepeat {len(levels)} times",
+            ha="center", va="top", fontsize=11, color="#1c222b", linespacing=1.4)
+
+    levels_strip(ax, levels, T, 0.3, 15.7, 0.55, C_WARM, 1.8)
+    shown = ", ".join(map(str, levels[:3])) + ", ..., " + ", ".join(map(str, levels[-2:]))
+    ax.text(0.3, 0.98, f"noise levels visited: {len(levels)}  ({shown})  =  {len(levels)} U-Net "
+            "calls per digit", fontsize=11, color="#1c222b", va="bottom")
+    return save(fig, path)
+
+
+def fig_levels_compare(path, T, levels):
+    """Both samplers on one noise-level axis, with one DDIM jump marked."""
+    xlim, ylim = (0, 16), (-0.2, 2.6)
+    fig, ax = canvas(13, 13 * 2.8 / 16, xlim, ylim)
+    x0, x1 = 1.6, 15.7
+    ax.text(0.2, 1.95, "DDPM", fontsize=13, fontweight="bold", color=C_COOL, va="center")
+    ax.text(0.2, 0.85, "DDIM", fontsize=13, fontweight="bold", color=C_WARM, va="center")
+    ax.vlines([x0 + (T - 1 - t) / (T - 1) * (x1 - x0) for t in range(T)], 1.75, 2.15,
+              color=C_COOL, lw=0.5)
+    xs = [x0 + (T - 1 - t) / (T - 1) * (x1 - x0) for t in levels]
+    ax.vlines(xs, 0.65, 1.05, color=C_WARM, lw=1.8)
+    ax.text(x1, 2.3, f"{T} levels, one U-Net call each", ha="right", fontsize=11, color="#1c222b")
+    ax.text(x1, 1.2, f"{len(levels)} levels, one U-Net call each", ha="right", fontsize=11,
+            color="#1c222b")
+    # one jump, bracketed: how many DDPM steps it replaces
+    a, b = xs[0], xs[1]
+    ax.plot([a, a, b, b], [0.55, 0.42, 0.42, 0.55], color=C_WARM, lw=1.4)
+    ax.text((a + b) / 2, 0.32, f"one DDIM jump: t = {levels[0]} -> {levels[1]}, "
+            f"in place of {levels[0] - levels[1]} DDPM steps", ha="left", va="top",
+            fontsize=10.5, color=C_WARM)
+    ax.text(x0, 2.3, f"t = {T - 1}  (pure noise)", ha="left", va="bottom", fontsize=10, color=C_GREY)
+    ax.text(x1, 0.32, "t = 0  (the digit)", ha="right", va="top", fontsize=10, color=C_GREY)
+    return save(fig, path)
+
+
 def fig_embedding(path, emb_dim):
     """t and y -> e: what the sin/cos + MLP block and the label table do."""
     xlim, ylim = (0, 16), (-0.45, 4.35)
@@ -1171,6 +1312,17 @@ def fig_dit(path, shapes, n_params, depth, dim):
     return save(fig, path)
 
 
+def short_device(name):
+    """'NVIDIA RTX 2000 Ada Generation Laptop GPU' -> 'RTX 2000 Ada Laptop GPU'."""
+    return name.replace("NVIDIA ", "").replace(" Generation", "")
+
+
+def machine(log):
+    """Where a log's seconds were measured. Logs written before the device was
+    recorded all came from the Mac."""
+    return short_device((log or {}).get("device", "the Mac"))
+
+
 def fig_loss_compare(path, log1, log2):
     """Both parts' training loss: per epoch (left) and per minute of training (right)."""
     import numpy as np
@@ -1182,7 +1334,9 @@ def fig_loss_compare(path, log1, log2):
         axes[0].plot(log["epoch"], log["loss"], marker="o", ms=4, color=col, ls=ls, lw=2, label=name)
         axes[1].plot(minutes, log["loss"], marker="o", ms=4, color=col, ls=ls, lw=2, label=name)
     style(axes[0], "epoch", "training loss (MSE)")
-    style(axes[1], "minutes of training on this Mac", "training loss (MSE)")
+    same = machine(log1) == machine(log2)
+    style(axes[1], f"minutes of training on {machine(log1)}" if same
+          else "minutes of training (NOT the same machine)", "training loss (MSE)")
     axes[0].set_xticks([e for e in log1["epoch"] if e == 1 or e % 5 == 0])
     axes[0].legend(frameon=False)
     return save(fig, path)
@@ -1227,6 +1381,236 @@ def text_and_picture_slide(prs, kicker, title, items, img, img_top, img_h, cap=N
     if cap:
         caption(s, cap, y=Inches(6.75))
     return s
+
+
+def math_row(slide, exprs, y, tmp, fontsize=22, gap=Inches(0.9)):
+    """Several equations on one line, centred as a group, sharing a midline."""
+    paths, sizes = [], []
+    for e in exprs:
+        _math_seq[0] += 1
+        p = math_png(e, os.path.join(tmp, f"eq{_math_seq[0]}.png"), fontsize=fontsize)
+        ph, pw = plt.imread(p).shape[:2]
+        paths.append(p)
+        sizes.append((int(pw / MATH_DPI * 914400), int(ph / MATH_DPI * 914400)))
+    total = sum(w for w, _ in sizes) + int(gap) * (len(exprs) - 1)
+    tallest = max(h for _, h in sizes)
+    x = int((W - total) / 2)
+    for p, (w, h) in zip(paths, sizes):
+        slide.shapes.add_picture(p, x, int(y) + (tallest - h) // 2, width=Emu(w), height=Emu(h))
+        x += w + int(gap)
+    return Emu(total), Emu(tallest)
+
+
+def note(slide, s, y, h=Inches(0.9)):
+    text(slide, M, y, W - 2 * M, h, [(s, 14, False, MUTED, SANS)], spacing=1.15)
+
+
+def sampler_slides(prs, tmp, sched, sample_log):
+    """After the inference loop: one step of DDPM, one step of DDIM, then the two
+    side by side. Their results come later (sampler_result_slides)."""
+    T = sched.T
+    levels = ddim_levels(T)
+    n = len(levels)
+    made = []
+
+    # DDPM: one step
+    t = T - 1
+    beta, ab = sched.betas[t].item(), sched.alpha_bars[t].item()
+    s = blank(prs)
+    made.append(s)
+    header(s, "INFERENCE: SAMPLER 1 OF 2 -- DDPM", f"DDPM: {T} small steps, a little fresh noise each time")
+    picture(s, fig_ddpm_step(os.path.join(tmp, "ddpm_step.png"), T), top=Inches(1.8), height=Inches(3.3))
+    math_row(s, [EQ_DDPM], Inches(5.2), tmp, fontsize=22)
+    note(s, f"c_t = beta_t / sqrt(1 - alpha-bar_t): how much of the predicted noise one step removes.   "
+            f"z: fresh random noise, drawn again at every step.   At t = {t}: c_t = {beta / (1 - ab) ** 0.5:.3f} "
+            f"and the fresh noise has spread sqrt(beta_t) = {beta ** 0.5:.3f}. The update uses one "
+            f"level's beta_t, so it can only move one level: all {T} must be visited.", Inches(5.95))
+
+    # DDIM: one step
+    s = blank(prs)
+    made.append(s)
+    header(s, "INFERENCE: SAMPLER 2 OF 2 -- DDIM",
+           f"DDIM: guess the clean digit, then jump {(T - 1) / (n - 1):.0f} levels down")
+    picture(s, fig_ddim_step(os.path.join(tmp, "ddim_step.png"), T, levels), top=Inches(1.8),
+            height=Inches(3.3))
+    math_row(s, [EQ_X0, EQ_JUMP], Inches(5.12), tmp, fontsize=22)
+    note(s, "Why it can jump: the forward formula x_t = sqrt(alpha-bar_t) x_0 + sqrt(1 - alpha-bar_t) epsilon "
+            "holds at ANY level. With a guess for x_0 and epsilon, step 2 builds the image at level t' "
+            "directly, skipping the levels in between. No fresh noise is added, so the start noise alone "
+            "decides which 7 you get. Same checkpoint as DDPM: nothing is retrained.", Inches(6.0))
+
+    # side by side
+    s = blank(prs)
+    made.append(s)
+    header(s, "INFERENCE: TWO SAMPLERS", "Same checkpoint: the sampler is picked when you generate")
+    picture(s, fig_levels_compare(os.path.join(tmp, "levels.png"), T, levels), top=Inches(1.8),
+            height=Inches(1.95))
+
+    headers = ["", "DDPM", "DDIM"]
+    rows = [
+        ["U-Net calls per digit", str(T), f"{n}   (--steps)"],
+        ["One step", "remove a little noise, add fresh noise", "guess the clean digit, jump down"],
+        ["Fresh noise after the start", f"{T - 1} draws", "none"],
+        ["Time (w = 1)", timing(sample_log, "ddpm", T), timing(sample_log, "ddim", n)],
+        ["Command", "python sample.py --sampler ddpm", "python sample.py --sampler ddim"],
+    ]
+    top = Inches(3.75)
+    widths = [1.25, 1.6, 1.6]
+    scale = (W - 2 * M) / sum(widths)
+    xs, x = [], int(M)
+    for w in widths:
+        xs.append((x, int(w * scale)))
+        x += int(w * scale)
+    for (x0, w), h in zip(xs, headers):
+        text(s, x0, top, w, Inches(0.4), [(h, 13, True, MUTED, SANS)])
+    rule(s, Emu(int(top) + Inches(0.42)))
+    for i, row in enumerate(rows):
+        ry = Emu(int(top) + Inches(0.52) + Inches(0.4) * i)
+        for j, ((x0, w), cell) in enumerate(zip(xs, row)):
+            font = MONO if row[0] == "Command" and j > 0 else SANS
+            color = MUTED if j == 0 else INK
+            text(s, x0, ry, w, Inches(0.38), [(cell, 14, j == 0, color, font)])
+    a, b = sample_log.get(f"ddpm_{T}steps_w1"), sample_log.get(f"ddim_{n}steps_w1")
+    where = ""
+    if a and b:
+        where = (f" Both timed on {machine(a)}." if machine(a) == machine(b) else
+                 f" Timed on different machines ({machine(a)} vs {machine(b)}): the times do not compare.")
+    note(s, f"Why DDIM: DDPM calls the U-Net once per level; DDIM visits {n} of the {T} levels, "
+            f"{T // n}x fewer calls with the same weights." + where, Inches(6.45), h=Inches(0.5))
+    return made
+
+
+def timing(sample_log, sampler, calls):
+    r = sample_log.get(f"{sampler}_{calls}steps_w1")
+    if not r:
+        return "not measured yet"
+    s = r["seconds"]
+    return f"{s:.1f} s for {r['digits']} digits" if s < 10 else f"{s:.0f} s for {r['digits']} digits"
+
+
+def fig_sampler_sweep(path, grid_png, data):
+    """sampler_compare.png (one row per setting, digits 0-9) with each row's numbers
+    beside it, read from sampler_compare.json in the same order."""
+    rows = data["rows"]
+    k = len(rows)
+    img = plt.imread(grid_png)
+    fig, ax = canvas(12, 12 * (k + 1.3) / 23.2, (-0.1, 23.1), (k + 0.15, -1.15))
+    ax.imshow(img, extent=(0, 10, k, 0), interpolation="nearest")
+    cols = [(15.1, "U-Net calls"), (17.1, "seconds"), (19.2, "classifier\nagrees"),
+            (21.8, "FD to real\n(lower = better)")]
+    for x, h in cols:
+        ax.text(x, -0.55, h, ha="center", va="center", fontsize=13.5, color=C_GREY)
+    default = DDIM_STEPS
+    for i, r in enumerate(rows):
+        y = i + 0.5
+        if r["sampler"] == "real":
+            label, color, weight = "real digits (floor)", C_GREY, "normal"
+        else:
+            unit = "step" if r["steps"] == 1 else "steps"
+            label = f"{r['sampler'].upper()} {r['steps']} {unit}"
+            color = C_WARM if r["sampler"] == "ddim" else C_COOL
+            weight = "bold" if (r["sampler"] == "ddpm" or r["steps"] == default) else "normal"
+        ax.text(10.35, y, label, ha="left", va="center", fontsize=15, color=color, fontweight=weight)
+        real = r["sampler"] == "real"
+        secs = r["seconds"]
+        cells = ["-" if real else f"{r['network_calls']}",
+                 "-" if real else (f"{secs:.1f}" if secs < 100 else f"{secs:.0f}"),
+                 f"{r['agrees']:.1%}", f"{r['fd']:.2f}"]
+        for (x, _), c in zip(cols, cells):
+            ax.text(x, y, c, ha="center", va="center", fontsize=15, color="#1c222b", fontweight=weight)
+    return save(fig, path)
+
+
+def pair_slide(prs, kicker, title, items, cap):
+    """Two pictures side by side, each under its own bold label."""
+    s = blank(prs)
+    header(s, kicker, title)
+    half = int((W - 2 * M - Inches(0.6)) / 2)
+    for k, (img, label) in enumerate(items):
+        left = int(M) + k * (half + int(Inches(0.6)))
+        text(s, left, Inches(1.85), half, Inches(0.4), [(label, 16, True, INK, SANS)],
+             align=PP_ALIGN.CENTER)
+        pic = s.shapes.add_picture(img, Emu(0), Inches(2.35), height=Inches(3.9))
+        if pic.width > half:
+            pic.height, pic.width = int(pic.height * half / pic.width), half
+        pic.left = left + (half - int(pic.width)) // 2
+    caption(s, cap, y=Inches(6.45))
+    return s
+
+
+def sampler_result_slides(prs, tmp, sched, sample_log):
+    """The results of both samplers on the same checkpoint and the same start noise:
+    noise -> digit step by step, the finished digits, then speed vs quality."""
+    T = sched.T
+    n = DDIM_STEPS
+    kicker = "RESULTS: DDPM VS DDIM"
+
+    # 1. noise -> digit, both loops
+    tr_ddpm, tr_ddim = result("trajectory_ddpm.png"), result("trajectory_ddim.png")
+    if tr_ddpm and tr_ddim:
+        pair_slide(prs, kicker, f"Noise to digit: DDPM's {T} steps vs DDIM's {n}",
+                   [(tr_ddpm, f"DDPM, {T} steps"), (tr_ddim, f"DDIM, {n} steps")],
+                   "One row per digit, 0-9, same start noise for both. Columns: 10 evenly spaced "
+                   "moments of each loop, noise to digit.")
+    else:
+        not_run_slide(prs, kicker, f"Noise to digit: DDPM's {T} steps vs DDIM's {n}",
+                      ["python sample.py --sampler ddpm --guidance 1 --trajectory",
+                       "python sample.py --sampler ddim --guidance 1 --trajectory"],
+                      "The step-by-step picture")
+
+    # 2. the finished digits, with timings
+    ddpm_img, ddim_img = result("samples_ddpm_w1.png"), result("samples_ddim_w1.png")
+    if ddpm_img and ddim_img:
+        a = sample_log.get(f"ddpm_{T}steps_w1", {})
+        pair_slide(prs, kicker, "The finished digits: same start noise, two samplers",
+                   [(ddpm_img, f"DDPM, {T} steps:  {timing(sample_log, 'ddpm', T)}"),
+                    (ddim_img, f"DDIM, {n} steps:  {timing(sample_log, 'ddim', n)}")],
+                   f"Row k: y = k, w = 1, on {machine(a)}. Same start noise; DDPM also adds fresh "
+                   "noise every step, so its digits differ.")
+    else:
+        not_run_slide(prs, kicker, "The finished digits: same start noise, two samplers",
+                      ["python sample.py --sampler ddpm --guidance 1",
+                       "python sample.py --sampler ddim --guidance 1"],
+                      "The side-by-side picture (and both timings, on the same machine)")
+
+    # 3. speed vs quality, over DDIM's step count
+    data, grid = load_json("sampler_compare.json"), result("sampler_compare.png")
+    if not (data and grid):
+        not_run_slide(prs, kicker, "How many steps does DDIM need?",
+                      ["python compare_samplers.py"], "The step-count sweep")
+        return
+    rows = {(r["sampler"], r["steps"]): r for r in data["rows"]}
+    ddpm, ddim, one = rows.get(("ddpm", T)), rows.get(("ddim", n)), rows.get(("ddim", 1))
+    full, real = rows.get(("ddim", T)), rows.get(("real", 0))
+    title = "How many steps does DDIM need?"
+    if ddpm and ddim:
+        x = ddpm["seconds"] / ddim["seconds"]
+        title = (f"DDIM is {x:.0f}x faster; DDPM's digits are closer to real ones"
+                 if ddim["fd"] > 1.5 * ddpm["fd"] else f"DDIM: {x:.0f}x faster at about the same quality")
+    s = blank(prs)
+    header(s, kicker, title)
+    picture(s, fig_sampler_sweep(os.path.join(tmp, "sweep.png"), grid, data), top=Inches(1.75),
+            height=Inches(3.95))
+    facts = []
+    bad = [r["steps"] for r in data["rows"] if r["sampler"] == "ddim" and r["agrees"] < 0.5]
+    if bad:
+        ab = sched.alpha_bars[T - 1].item()
+        few = f"{min(bad)}-{max(bad)} steps" if len(bad) > 1 else f"{bad[0]} step"
+        facts.append(f"{few}: speckle, since the first digit guess (t = {T - 1}) multiplies the noise "
+                     f"error by {((1 - ab) / ab) ** 0.5:.0f}.")
+    if ddpm and ddim:
+        facts.append(f"DDIM {n}: {ddpm['seconds'] / ddim['seconds']:.0f}x faster than DDPM, FD "
+                     f"{ddim['fd']:.1f} vs {ddpm['fd']:.1f}" + (f" (real: {real['fd']:.1f})." if real else "."))
+    if full and ddpm:
+        facts.append(f"DDIM with all {T} steps: FD {full['fd']:.1f}, "
+                     + ("so the gap is DDPM's fresh noise, not the step count."
+                        if full["fd"] > 1.5 * ddpm["fd"] else "so the gap was the step count."))
+    note(s, " ".join(facts), Inches(5.78), h=Inches(0.65))
+    text(s, M, Inches(6.5), W - 2 * M, Inches(0.45),
+         [(f"{data['digits_per_setting']:,} digits per row, same start noise, w = 1, on "
+           f"{short_device(data['device'])}. Agrees: a separate classifier ({data['judge_test_acc']:.1%} on "
+           "test digits) reads the requested digit. FD: distance to real digits in its features.",
+           12, False, MUTED, SANS)], align=PP_ALIGN.CENTER)
 
 
 # ------------------------------------------------------------------ deck
@@ -1350,7 +1734,7 @@ def build():
         s = blank(prs)
         header(s, "RESULTS: TRAINING",
                "The loss falls, and digits appear" if grids else "The loss falls, then flattens")
-        summary = (f"{last} epochs, {sum(train_log['seconds']) / 60:.0f} min on this Mac, "
+        summary = (f"{last} epochs, {sum(train_log['seconds']) / 60:.0f} min on {machine(train_log)}, "
                    f"{train_log['params']:,} parameters.")
         live = " Live: trackio show --project week5-diffusion"
         if grids:
@@ -1363,7 +1747,7 @@ def build():
             if int(g.width) > room:                  # too wide: shrink, keep proportions
                 g.height, g.width = int(g.height * room / int(g.width)), room
             caption(s, summary + " Right: rows are digits 0-9, same starting noise after every "
-                    "epoch (made with a faster 50-step sampler with guidance, not covered here)."
+                    "epoch (50-step DDIM, shown later, with guidance)."
                     + live, y=Inches(6.2))
         else:                                        # no per-epoch grids: the loss curve alone
             pic = s.shapes.add_picture(fig_loss(os.path.join(tmp, "loss.png"), train_log),
@@ -1380,24 +1764,9 @@ def build():
                  cap="The seed decides WHICH 7 (slant, thickness). The label decides THAT it is a 7. "
                      "The model always runs forward; only t counts down.")
 
-    if (p := result("trajectory_ddpm.png")):
-        figure_slide(prs, "RESULTS: INFERENCE", "Noise on the left, digit on the right",
-                     p, height=Inches(4.4),
-                     cap="One row per requested digit, 0-9. Columns: 10 evenly spaced moments of the "
-                         "1000-step loop from the previous slide.")
-    else:
-        not_run_slide(prs, "RESULTS: INFERENCE", "Noise on the left, digit on the right",
-                      ["python sample.py --sampler ddpm --guidance 1 --trajectory"],
-                      "The step-by-step picture")
-
-    if (p := result("samples_ddpm_w1.png")):
-        timing = sample_log.get("ddpm_1000steps_w1", {})
-        extra = (f" {timing['digits']} digits x 1000 steps took {timing['seconds']:.0f} s."
-                 if timing else "")
-        figure_slide(prs, "RESULTS: INFERENCE", "Ask for each digit, get eight new ones",
-                     p, height=Inches(4.4),
-                     cap="Row k: y = k, eight different seeds. Same trained model, 1000-step loop, "
-                         "nothing else." + extra)
+    sampler_slides(prs, tmp, sched, sample_log)
+    # The results of both samplers, compared: trajectories, samples, speed vs quality.
+    sampler_result_slides(prs, tmp, sched, sample_log)
 
     part2(prs, tmp, x0, model, train_log)
 
@@ -1525,13 +1894,22 @@ def part2(prs, tmp, x0, unet, train_log):
                      f"{sum(train_log['seconds']) / 60:.0f}",
                      (f"{d_sec * planned / 60:.0f}" + ("" if len(log2["epoch"]) >= planned
                                                          else " (projected)"),)])
+    # Speed per unit of work, measured rather than assumed: it depends on the GPU.
+    speed = ""
+    if u_sec and d_sec and machine(train_log) == machine(log2):
+        r = (d_sec / d_gf) / (u_sec / u_gf)            # > 1: the transformer is slower per GFLOP
+        speed = (f" Timed on {machine(log2)}: per GFLOP, the transformer's epoch takes "
+                 f"{r:.1f}x as long as the U-Net's." if abs(r - 1) > 0.1 else
+                 f" Timed on {machine(log2)}: both get about the same work done per second.")
+    elif u_sec and d_sec:
+        speed = (f" The two were timed on different machines ({machine(train_log)} vs "
+                 f"{machine(log2)}), so the seconds do not compare.")
     table_slide(prs, "PART 2: THE COST", "Same parameters, not the same compute",
                 ["", "U-Net (Part 1)", "transformer (Part 2)"], rows, widths=[2.2, 1.2, 1.4],
                 note="GFLOPs: billions of multiplications and additions to process one image once, "
                      "counted by PyTorch. Every transformer weight is used on all "
-                     f"{n_tok} tokens; the U-Net's widest layers only run on 4 x 4 = 16 positions. "
-                     "Attention is also slower per GFLOP than convolution on this Mac's GPU."
-                     + slept_note(log2))
+                     f"{n_tok} tokens; the U-Net's widest layers only run on 4 x 4 = 16 positions."
+                     + speed + slept_note(log2))
 
     if log2:
         done = len(log2["epoch"])
@@ -1546,7 +1924,10 @@ def part2(prs, tmp, x0, unet, train_log):
                      height=Inches(3.9), top=Inches(1.95),
                      cap=f"Transformer: {status}, final loss {log2['loss'][-1]:.4f}. U-Net: "
                          f"{len(train_log['epoch'])} epochs, final loss {train_log['loss'][-1]:.4f}. "
-                         "Same data, same loss, same recipe, so the numbers compare directly."
+                         + ("Same data, same loss, same recipe, same machine, so the numbers compare "
+                            "directly." if machine(train_log) == machine(log2) else
+                            "Same data, loss and recipe, but timed on different machines: compare the "
+                            "left panel only.")
                          + slept_note(log2))
         last = log2["epoch"][-1]
         grids = [(p, f"after epoch {e}") for e in sorted({1, (last + 1) // 2, last})
