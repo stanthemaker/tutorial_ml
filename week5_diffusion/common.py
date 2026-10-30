@@ -28,6 +28,7 @@ strongly, at the cost of less variety.
 
 import math
 import os
+import platform
 
 import torch
 import torch.nn.functional as F
@@ -35,18 +36,20 @@ from torchvision import datasets
 from torchvision.utils import make_grid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA = os.path.join(os.path.dirname(HERE), "data")  # the repo's shared data/ folder
+DATA = os.path.join(os.path.dirname(HERE), "data")      # the repo's shared data/ folder
 CKPT_DIR = os.path.join(HERE, "checkpoints")
 RESULTS = os.path.join(HERE, "results")
 
-IMAGE_SIZE = 32  # MNIST is 28 x 28; padded to 32 so it halves cleanly 3 times
-T = 1000  # number of noise levels
+IMAGE_SIZE = 32          # MNIST is 28 x 28; padded to 32 so it halves cleanly 3 times
+T = 1000                 # number of noise levels
 NUM_CLASSES = 10
-NULL_LABEL = 10  # the 11th label: "no label given"
+NULL_LABEL = 10          # the 11th label: "no label given"
 
 
 def weights_path(name):
-    """checkpoints/<name>.pt -- the one place weights live."""
+    """checkpoints/<name>.pt -- the one place weights live. The folder is not in git,
+    so a fresh clone (or a second machine) does not have it yet: create it."""
+    os.makedirs(CKPT_DIR, exist_ok=True)
     return os.path.join(CKPT_DIR, f"{name}.pt")
 
 
@@ -58,7 +61,6 @@ def results_dir(name):
 
 
 # ---------------------------------------------------------------- noise schedule
-
 
 class NoiseSchedule:
     """How much noise is at each level t. The DDPM paper's linear schedule.
@@ -78,15 +80,9 @@ class NoiseSchedule:
         self.alphas = 1.0 - self.betas
         self.alpha_bars = torch.cumprod(self.alphas, dim=0)
 
-    # TODO
-    #  self.alpha_bars holds 1000 numbers, one per noise level. They go from about 1 (almost no noise) down to about 0 (pure noise).
-    # t has one random noise level per image in the batch, so its shape is B.
-    # self.alpha_bars[t] looks up each image's ᾱ, which also has shape B.
-    # .view(-1, 1, 1, 1) reshapes that to B × 1 × 1 × 1. Then each image in x0 (B × 1 × 32 × 32) gets multiplied by its own single number, applied to every pixel.
     def add_noise(self, x0, t, noise):
         ab = self.alpha_bars[t].view(-1, 1, 1, 1)
-        # f ( ab, x0, noise)
-        # return
+        return ab.sqrt() * x0 + (1 - ab).sqrt() * noise
 
 
 def timestep_embedding(t, dim):
@@ -104,23 +100,23 @@ def timestep_embedding(t, dim):
 
 # ---------------------------------------------------------------- data
 
-
-def load_mnist(device):
-    """All 60,000 training digits as one tensor on the device.
+def load_mnist(device, train=True):
+    """All 60,000 training digits (or, with train=False, the 10,000 test digits)
+    as one tensor on the device.
 
     Pixels 0..255 -> [-1, 1] (so the background is -1, the same range as the
     noise). 28 x 28 is padded with background to 32 x 32, so the U-Net can
     halve it three times: 32 -> 16 -> 8 -> 4.
     """
-    ds = datasets.MNIST(root=DATA, train=True, download=True)
-    x = ds.data.float().div(127.5).sub(1).unsqueeze(1)  # N x 1 x 28 x 28
+    ds = datasets.MNIST(root=DATA, train=train, download=True)
+    x = ds.data.float().div(127.5).sub(1).unsqueeze(1)                # N x 1 x 28 x 28
     pad = (IMAGE_SIZE - 28) // 2
-    x = F.pad(x, (pad, pad, pad, pad), value=-1.0)  # N x 1 x 32 x 32
+    x = F.pad(x, (pad, pad, pad, pad), value=-1.0)                    # N x 1 x 32 x 32
     return x.to(device), ds.targets.to(device)
 
 
 def to_pixels(x):
-    return (x + 1) / 2  # [-1, 1] -> [0, 1]
+    return (x + 1) / 2                                                # [-1, 1] -> [0, 1]
 
 
 def count_params(model):
@@ -135,8 +131,35 @@ def get_device():
     return torch.device("cpu")
 
 
-# ---------------------------------------------------------------- sampling
+def device_name(device):
+    """A readable name for the logs, so a timing says which machine it came from."""
+    if device.type == "cuda":
+        return torch.cuda.get_device_name(device)
+    if device.type == "mps":
+        return f"Apple {platform.machine()} GPU (MPS)"
+    return f"CPU ({platform.processor() or platform.machine()})"
 
+
+def sync(device):
+    """Wait for the GPU to finish, so a timing is real (GPU calls return early)."""
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize()
+
+
+@torch.no_grad()
+def warm_up(model, device, batch):
+    """One untimed network call at the batch size about to be timed. The first GPU
+    call pays one-off setup (loading kernels), which would otherwise be charged to
+    whichever sampler runs first -- most visibly to a short one."""
+    x = torch.zeros(batch, 1, IMAGE_SIZE, IMAGE_SIZE, device=device)
+    z = torch.zeros(batch, dtype=torch.long, device=device)
+    model(x, z, z)
+    sync(device)
+
+
+# ---------------------------------------------------------------- sampling
 
 def randn(shape, generator, device):
     """Noise drawn on the CPU (with an optional seeded generator), then moved.
@@ -150,9 +173,8 @@ def predict_noise(model, x, t, y, guidance):
     if guidance == 1.0:
         return model(x, t, y)
     null = torch.full_like(y, NULL_LABEL)
-    eps_label, eps_nolabel = model(
-        torch.cat([x, x]), torch.cat([t, t]), torch.cat([y, null])
-    ).chunk(2)
+    eps_label, eps_nolabel = model(torch.cat([x, x]), torch.cat([t, t]),
+                                   torch.cat([y, null])).chunk(2)
     return eps_nolabel + guidance * (eps_label - eps_nolabel)
 
 
@@ -160,8 +182,8 @@ def predict_noise(model, x, t, y, guidance):
 def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=None):
     """DDPM: 1000 steps, fresh random noise added back at every step.
 
-    x_{t-1} = 1/sqrt(alpha_t) * (x_t - beta_t / sqrt(1 - alpha_bar_t) * eps)
-              + sqrt(beta_t) * z
+        x_{t-1} = 1/sqrt(alpha_t) * (x_t - beta_t / sqrt(1 - alpha_bar_t) * eps)
+                  + sqrt(beta_t) * z
     """
     n, device = len(labels), labels.device
     x = randn((n, 1, IMAGE_SIZE, IMAGE_SIZE), generator, device)
@@ -179,9 +201,7 @@ def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=N
 
 
 @torch.no_grad()
-def ddim_sample(
-    model, sched, labels, steps=50, guidance=3.0, generator=None, trajectory=None
-):
+def ddim_sample(model, sched, labels, steps=50, guidance=3.0, generator=None, trajectory=None):
     """DDIM: same trained model, visits only `steps` of the 1000 levels and
     adds no fresh noise. Each step:
         1. guess the clean digit:  x0 = (x_t - sqrt(1 - ab_t) * eps) / sqrt(ab_t)
@@ -201,11 +221,7 @@ def ddim_sample(
         tt = torch.full((n,), t, device=device, dtype=torch.long)
         eps = predict_noise(model, x, tt, labels, guidance)
         ab = sched.alpha_bars[t]
-        ab_next = (
-            sched.alpha_bars[ts[i + 1]]
-            if i + 1 < len(ts)
-            else torch.tensor(1.0, device=device)
-        )
+        ab_next = sched.alpha_bars[ts[i + 1]] if i + 1 < len(ts) else torch.tensor(1.0, device=device)
         x0 = ((x - (1 - ab).sqrt() * eps) / ab.sqrt()).clamp(-1, 1)
         eps = (x - ab.sqrt() * x0) / (1 - ab).sqrt()
         x = ab_next.sqrt() * x0 + (1 - ab_next).sqrt() * eps

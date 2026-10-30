@@ -90,18 +90,8 @@ import torch.nn.functional as F
 import trackio
 from torchvision.utils import save_image
 
-from common import (
-    NULL_LABEL,
-    NUM_CLASSES,
-    NoiseSchedule,
-    count_params,
-    get_device,
-    load_mnist,
-    results_dir,
-    sample_grid,
-    timestep_embedding,
-    weights_path,
-)
+from common import (NULL_LABEL, NUM_CLASSES, NoiseSchedule, count_params, device_name, get_device,
+                    load_mnist, results_dir, sample_grid, timestep_embedding, weights_path)
 
 NAME = "part1_unet"
 
@@ -117,40 +107,38 @@ class Block(nn.Module):
     def __init__(self, in_ch, out_ch, emb_dim):
         super().__init__()
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.GroupNorm(8, out_ch), nn.ReLU()
-        )
+            nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.GroupNorm(8, out_ch), nn.ReLU())
         self.emb = nn.Linear(emb_dim, out_ch)
         self.conv2 = nn.Sequential(
-            nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.GroupNorm(8, out_ch), nn.ReLU()
-        )
+            nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.GroupNorm(8, out_ch), nn.ReLU())
 
     def forward(self, x, emb):
         h = self.conv1(x)
-        h = h + self.emb(emb)[:, :, None, None]  # <- the only new line vs week 4
+        h = h + self.emb(emb)[:, :, None, None]    # <- the only new line vs week 4
         return self.conv2(h)
 
 
 class UNet(nn.Module):
     """
-    input x_t                  1 x 32 x 32
-    enc1  Block(1 -> 48)      48 x 32 x 32  ──────────────────┐
-          MaxPool(2)                                          │
-    enc2  Block(48 -> 96)     96 x 16 x 16  ────────┐         │
-          MaxPool(2)                                │         │
-    enc3  Block(96 -> 192)   192 x  8 x  8  ──┐     │         │
-          MaxPool(2)                          │     │         │
-    bott  Block(192 -> 384)  384 x  4 x  4    │     │         │
-          ConvT(384 -> 192)  192 x  8 x  8    │     │         │
-    dec3  Block(384 -> 192)  <- cat ──────────┘     │         │
-          ConvT(192 -> 96)    96 x 16 x 16          │         │
-    dec2  Block(192 -> 96)   <- cat ────────────────┘         │
-          ConvT(96 -> 48)     48 x 32 x 32                    │
-    dec1  Block(96 -> 48)    <- cat ──────────────────────────┘
-    head  Conv1x1(48 -> 1)     1 x 32 x 32   predicted noise
+        input x_t                  1 x 32 x 32
+        enc1  Block(1 -> 48)      48 x 32 x 32  ──────────────────┐
+              MaxPool(2)                                          │
+        enc2  Block(48 -> 96)     96 x 16 x 16  ────────┐         │
+              MaxPool(2)                                │         │
+        enc3  Block(96 -> 192)   192 x  8 x  8  ──┐     │         │
+              MaxPool(2)                          │     │         │
+        bott  Block(192 -> 384)  384 x  4 x  4    │     │         │
+              ConvT(384 -> 192)  192 x  8 x  8    │     │         │
+        dec3  Block(384 -> 192)  <- cat ──────────┘     │         │
+              ConvT(192 -> 96)    96 x 16 x 16          │         │
+        dec2  Block(192 -> 96)   <- cat ────────────────┘         │
+              ConvT(96 -> 48)     48 x 32 x 32                    │
+        dec1  Block(96 -> 48)    <- cat ──────────────────────────┘
+        head  Conv1x1(48 -> 1)     1 x 32 x 32   predicted noise
 
-    t -> sines/cosines -> MLP ─┐
-                               + -> emb (192 numbers) -> into every Block
-    y -> lookup table ─────────┘
+        t -> sines/cosines -> MLP ─┐
+                                   + -> emb (192 numbers) -> into every Block
+        y -> lookup table ─────────┘
     """
 
     def __init__(self, base=48):
@@ -158,11 +146,8 @@ class UNet(nn.Module):
         self.base = base
         emb_dim = base * 4
         self.time_mlp = nn.Sequential(
-            nn.Linear(base, emb_dim), nn.ReLU(), nn.Linear(emb_dim, emb_dim)
-        )
-        self.label_emb = nn.Embedding(
-            NUM_CLASSES + 1, emb_dim
-        )  # 10 digits + "no label"
+            nn.Linear(base, emb_dim), nn.ReLU(), nn.Linear(emb_dim, emb_dim))
+        self.label_emb = nn.Embedding(NUM_CLASSES + 1, emb_dim)   # 10 digits + "no label"
 
         self.pool = nn.MaxPool2d(2)
         self.enc1 = Block(1, base, emb_dim)
@@ -195,9 +180,8 @@ class UNet(nn.Module):
 
 def training_args(description, **network_args):
     """The training recipe, shared by both parts, plus each part's network sizes."""
-    p = argparse.ArgumentParser(
-        description=description, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
+    p = argparse.ArgumentParser(description=description,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--epochs", type=int, default=20)
     p.add_argument("--batch-size", type=int, default=128)
     p.add_argument("--lr", type=float, default=2e-4)
@@ -205,9 +189,7 @@ def training_args(description, **network_args):
     p.add_argument("--ema", type=float, default=0.999)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--project", default="week5-diffusion")
-    p.add_argument(
-        "--resume", action="store_true", help="continue from the saved checkpoint"
-    )
+    p.add_argument("--resume", action="store_true", help="continue from the saved checkpoint")
     for flag, (default, help_text) in network_args.items():
         p.add_argument(f"--{flag}", type=int, default=default, help=help_text)
     return p.parse_args()
@@ -223,12 +205,12 @@ def train(model, name, args, device):
 
     n = len(images)
     steps_per_epoch = n // args.batch_size
-    print(
-        f"{name}  device {device}  images {n:,}  parameters {count_params(model):,}  "
-        f"steps/epoch {steps_per_epoch}"
-    )
+    print(f"{name}  device {device}  images {n:,}  parameters {count_params(model):,}  "
+          f"steps/epoch {steps_per_epoch}")
 
-    log = {"epoch": [], "loss": [], "seconds": [], "params": count_params(model)}
+    # "device" records which machine the seconds were measured on (Windows GPU vs Mac).
+    log = {"epoch": [], "loss": [], "seconds": [], "params": count_params(model),
+           "device": device_name(device)}
     first = 1
     if args.resume:
         # The checkpoint keeps only the EMA weights, so the model and the EMA both
@@ -240,14 +222,14 @@ def train(model, name, args, device):
         with open(os.path.join(out, "train_log.json")) as f:
             log = json.load(f)
         log["resumed_after"] = ckpt["epoch"]
+        here = device_name(device)
+        if log.get("device", here) != here:            # resumed on another machine
+            log["device"] = f"{log['device']} (epochs 1-{ckpt['epoch']}), then {here}"
+        log.setdefault("device", here)
     step = (first - 1) * steps_per_epoch
 
-    trackio.init(
-        project=args.project,
-        name=name,
-        config={**vars(args), "params": count_params(model)},
-        resume="allow" if args.resume else "never",
-    )
+    trackio.init(project=args.project, name=name, config={**vars(args), "params": count_params(model)},
+                 resume="allow" if args.resume else "never")
 
     for epoch in range(first, args.epochs + 1):
         model.train()
@@ -255,7 +237,7 @@ def train(model, name, args, device):
         order = torch.randperm(n, device=device)
 
         for i in range(steps_per_epoch):
-            idx = order[i * args.batch_size : (i + 1) * args.batch_size]
+            idx = order[i * args.batch_size:(i + 1) * args.batch_size]
             x0, y = images[idx], digits[idx]
 
             # label dropout: sometimes train without the label
@@ -263,11 +245,9 @@ def train(model, name, args, device):
             y = torch.where(drop, torch.full_like(y, NULL_LABEL), y)
 
             t = torch.randint(0, sched.T, (len(x0),), device=device)
-            # TODO:
-            # noise, x_t, loss
-            # noise =
-            # x_t = sched.add_noise()
-            # loss = F.mse_loss()
+            noise = torch.randn_like(x0)
+            x_t = sched.add_noise(x0, t, noise)
+            loss = F.mse_loss(model(x_t, t, y), noise)
 
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -290,26 +270,14 @@ def train(model, name, args, device):
         epoch_loss = total / steps_per_epoch
         grid = sample_grid(ema, sched, device)
         save_image(grid, os.path.join(out, f"epoch_{epoch:02d}.png"))
-        trackio.log(
-            {
-                "epoch": epoch,
-                "epoch_loss": epoch_loss,
-                "epoch_seconds": seconds,
-                "samples": trackio.Image(
-                    (grid.permute(1, 2, 0).numpy() * 255).astype("uint8"),
-                    caption=f"epoch {epoch}: rows are digits 0-9",
-                ),
-            },
-            step=step,
-        )
+        trackio.log({"epoch": epoch, "epoch_loss": epoch_loss, "epoch_seconds": seconds,
+                     "samples": trackio.Image((grid.permute(1, 2, 0).numpy() * 255).astype("uint8"),
+                                              caption=f"epoch {epoch}: rows are digits 0-9")},
+                    step=step)
 
-        torch.save(
-            {"model": ema.state_dict(), "config": vars(args), "epoch": epoch},
-            weights_path(name),
-        )
-        log["epoch"].append(epoch)
-        log["loss"].append(epoch_loss)
-        log["seconds"].append(seconds)
+        torch.save({"model": ema.state_dict(), "config": vars(args), "epoch": epoch},
+                   weights_path(name))
+        log["epoch"].append(epoch); log["loss"].append(epoch_loss); log["seconds"].append(seconds)
         with open(os.path.join(out, "train_log.json"), "w") as f:
             json.dump(log, f, indent=1)
         print(f"epoch {epoch:3d}  loss {epoch_loss:.4f}  {seconds:.1f}s")

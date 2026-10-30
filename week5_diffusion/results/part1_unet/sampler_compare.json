@@ -1,0 +1,92 @@
+{
+ "device": "NVIDIA RTX 2000 Ada Generation Laptop GPU",
+ "run": "part1_unet",
+ "epochs_trained": 20,
+ "n_per_digit": 100,
+ "digits_per_setting": 1000,
+ "guidance": 1.0,
+ "seed": 0,
+ "judge_test_acc": 0.989,
+ "rows": [
+  {
+   "sampler": "ddim",
+   "steps": 1,
+   "network_calls": 1,
+   "seconds": 0.14,
+   "agrees": 0.191,
+   "fd": 1780.35
+  },
+  {
+   "sampler": "ddim",
+   "steps": 2,
+   "network_calls": 2,
+   "seconds": 0.27,
+   "agrees": 0.192,
+   "fd": 1711.38
+  },
+  {
+   "sampler": "ddim",
+   "steps": 5,
+   "network_calls": 5,
+   "seconds": 0.69,
+   "agrees": 0.96,
+   "fd": 104.84
+  },
+  {
+   "sampler": "ddim",
+   "steps": 10,
+   "network_calls": 10,
+   "seconds": 1.34,
+   "agrees": 0.951,
+   "fd": 34.25
+  },
+  {
+   "sampler": "ddim",
+   "steps": 20,
+   "network_calls": 20,
+   "seconds": 2.58,
+   "agrees": 0.949,
+   "fd": 21.68
+  },
+  {
+   "sampler": "ddim",
+   "steps": 50,
+   "network_calls": 50,
+   "seconds": 6.35,
+   "agrees": 0.938,
+   "fd": 17.91
+  },
+  {
+   "sampler": "ddim",
+   "steps": 100,
+   "network_calls": 100,
+   "seconds": 12.75,
+   "agrees": 0.937,
+   "fd": 17.19
+  },
+  {
+   "sampler": "ddim",
+   "steps": 1000,
+   "network_calls": 1000,
+   "seconds": 128.58,
+   "agrees": 0.937,
+   "fd": 16.76
+  },
+  {
+   "sampler": "ddpm",
+   "steps": 1000,
+   "network_calls": 1000,
+   "seconds": 131.74,
+   "agrees": 0.952,
+   "fd": 6.99
+  },
+  {
+   "sampler": "real",
+   "steps": 0,
+   "network_calls": 0,
+   "seconds": 0.0,
+   "agrees": 0.988,
+   "fd": 7.14
+  }
+ ]
+}
