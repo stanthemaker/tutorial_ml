@@ -127,7 +127,9 @@ class Block(nn.Module):
 
     def forward(self, x, emb):
         h = self.conv1(x)
-        h = h + self.emb(emb)[:, :, None, None]  # <- the only new line vs week 4
+        ## TODO: Block adds emb to its feature maps. not concat.
+        ## hint: h: (B, C, H, W) , emb: (B,192) ,self.emb(emb): (B,C). how to add them ?
+        ## h = h + _
         return self.conv2(h)
 
 
@@ -187,10 +189,10 @@ class UNet(nn.Module):
         s2 = self.enc2(self.pool(s1), emb)
         s3 = self.enc3(self.pool(s2), emb)
         b = self.bottleneck(self.pool(s3), emb)
-
-        d3 = self.dec3(torch.cat([self.up3(b), s3], dim=1), emb)
-        d2 = self.dec2(torch.cat([self.up2(d3), s2], dim=1), emb)
-        d1 = self.dec1(torch.cat([self.up1(d2), s1], dim=1), emb)
+        ##TODO: review skip connection 
+        ## d3 = self.dec3(torch.cat([_, _], dim=1), emb)
+        ## d2 = self.dec2(torch.cat([_, _], dim=1), emb)
+        ## d1 = self.dec1(torch.cat([_, _], dim=1), emb)
         return self.head(d1)
 
 
