@@ -4,15 +4,6 @@
   "network_calls": 1000,
   "guidance": 1.0,
   "digits": 80,
-  "seconds": 7.59,
-  "device": "NVIDIA RTX 2000 Ada Generation Laptop GPU"
- },
- "ddim_50steps_w1": {
-  "sampler": "ddim",
-  "network_calls": 50,
-  "guidance": 1.0,
-  "digits": 80,
-  "seconds": 0.39,
-  "device": "NVIDIA RTX 2000 Ada Generation Laptop GPU"
+  "seconds": 57.75
  }
 }

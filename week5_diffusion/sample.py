@@ -22,8 +22,8 @@ import time
 import torch
 from torchvision.utils import save_image
 
-from common import (NoiseSchedule, ddim_sample, ddpm_sample, device_name, get_device,
-                    results_dir, sync, warm_up, weights_path)
+from common import (NoiseSchedule, ddim_sample, ddpm_sample, get_device, results_dir,
+                    weights_path)
 from part1_unet_diffusion import UNet
 from part2_transformer_diffusion import DiT
 
@@ -38,6 +38,14 @@ def load_model(name, device):
         model = UNet(base=c["base"])
     model.load_state_dict(ckpt["model"])
     return model.to(device).eval(), ckpt
+
+
+def sync(device):
+    """Wait for the GPU to finish, so the timing is real."""
+    if device.type == "mps":
+        torch.mps.synchronize()
+    elif device.type == "cuda":
+        torch.cuda.synchronize()
 
 
 def main():
@@ -62,8 +70,7 @@ def main():
     gen = torch.Generator().manual_seed(args.seed)
     traj = [] if args.trajectory else None
 
-    # guidance runs the network on the labelled and unlabelled copies together
-    warm_up(model, device, len(labels) * (1 if args.guidance == 1.0 else 2))
+    sync(device)
     start = time.time()
     if args.sampler == "ddim":
         x = ddim_sample(model, sched, labels, steps=args.steps, guidance=args.guidance,
@@ -95,7 +102,7 @@ def main():
     log = json.load(open(log_path)) if os.path.exists(log_path) else {}
     log[f"{args.sampler}_{calls}steps_w{args.guidance:g}"] = {
         "sampler": args.sampler, "network_calls": calls, "guidance": args.guidance,
-        "digits": len(labels), "seconds": round(seconds, 2), "device": device_name(device)}
+        "digits": len(labels), "seconds": round(seconds, 2)}
     with open(log_path, "w") as f:
         json.dump(log, f, indent=1)
 
