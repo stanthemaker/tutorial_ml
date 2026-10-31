@@ -71,8 +71,8 @@ from part1_unet_diffusion import train, training_args
 NAME = "part2_transformer"
 
 
-def modulate(h, shift, scale):
-    """Per-channel scale and shift, chosen by the t-and-label vector."""
+def modulate(h, shift, scale): 
+    """computes LN(h)·(1 + scale) + shift."""
     return h * (1 + scale[:, None, :]) + shift[:, None, :]
 
 
@@ -91,7 +91,7 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.heads = heads
         self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.qkv = nn.Linear(dim, 3 * dim)
+        self.qkv = nn.Linear(dim, 3 * dim) # W_Q, W_K and W_V 
         self.proj = nn.Linear(dim, dim)
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = nn.Sequential(nn.Linear(dim, 4 * dim), nn.GELU(), nn.Linear(4 * dim, dim))
@@ -100,10 +100,13 @@ class TransformerBlock(nn.Module):
         nn.init.zeros_(self.ada[1].bias)
 
     def attention(self, h):
-        B, N, D = h.shape
-        q, k, v = self.qkv(h).view(B, N, 3, self.heads, D // self.heads).permute(2, 0, 3, 1, 4)
-        out = F.scaled_dot_product_attention(q, k, v)            # B x heads x N x D/heads
-        return self.proj(out.transpose(1, 2).reshape(B, N, D))
+        B, N, D = h.shape                               # (64, 256, 176): N = 256 tokens, d = 176 (slide 20)
+        q, k, v = (self.qkv(h)                          # (64, 256, 528): hW_Q, hW_K, hW_V side by side
+           .view(B, N, 3, self.heads, D // self.heads)  # (64, 256, 3, 4, 44): 528 = 3 × 4 heads × 44
+           .permute(2, 0, 3, 1, 4))                     # (3, 64, 4, 256, 44) → q, k, v each (64, 4, 256, 44)
+        out = F.scaled_dot_product_attention(q, k, v)   # softmax(QKᵀ/√44)·V, per image, per head
+        return self.proj(out.transpose(1, 2).reshape(B, N, D))   # heads side by side → (64, 256, 176) → Linear
+
 
     def forward(self, h, emb):
         shift1, scale1, gate1, shift2, scale2, gate2 = self.ada(emb).chunk(6, dim=1)
