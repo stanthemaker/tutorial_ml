@@ -203,10 +203,9 @@ def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=N
         alpha_t = sched.alphas[t]          # α_t = 1 - β_t
         alpha_bar_t = sched.alpha_bars[t]  # ᾱ_t = α_1 · ... · α_t
         # hint1: follow slide 12 to get x_t-1
-    
+        # first remove noise here:
         if t > 0: # prevent the last step (t=0) from adding noise
-            z = randn(x.shape, generator, device)
-            x = x + b.sqrt() * z
+            # then add a new noise here 
         if trajectory is not None:
             trajectory.append((t, x.clamp(-1, 1).cpu()))
     return x.clamp(-1, 1)
