@@ -74,7 +74,7 @@ from part1_unet_diffusion import train, training_args
 NAME = "part2_transformer"
 
 
-def modulate(x, shift, scale):
+def scale_and_shift(x, shift, scale):
     """x * (1 + scale) + shift: the scale and shift that e picks, one per channel.
     [:, None, :] makes them B x 1 x 176, so all 256 tokens get the same ones."""
     return x * (1 + scale[:, None, :]) + shift[:, None, :]
@@ -129,13 +129,13 @@ class TransformerBlock(nn.Module):
 
         # first half: LN -> attention -> +
         a = self.norm1(h)                        # LN
-        a = modulate(a, shift1, scale1)          # e's scale and shift
+        a = scale_and_shift(a, shift1, scale1)   # e's scale and shift
         a = self.attention(a)                    # attention
         h = h + gate1[:, None, :] * a            # +: added back onto the input, after e's gate
 
         # second half: LN -> MLP -> +
         m = self.norm2(h)                        # LN
-        m = modulate(m, shift2, scale2)          # e's scale and shift
+        m = scale_and_shift(m, shift2, scale2)   # e's scale and shift
         m = self.mlp(m)                          # MLP: 176 -> 704 -> 176, each token on its own
         h = h + gate2[:, None, :] * m            # +: added back onto the input, after e's gate
         return h
@@ -170,7 +170,7 @@ class DiT(nn.Module):
         for block in self.blocks:
             h = block(h, emb)
         shift, scale = self.ada(emb).chunk(2, dim=1)
-        h = self.head(modulate(self.norm(h), shift, scale))          # B x 256 x (p*p)
+        h = self.head(scale_and_shift(self.norm(h), shift, scale))   # B x 256 x (p*p)
 
         B, g, p = len(x), IMAGE_SIZE // self.patch, self.patch
         h = h.view(B, g, g, p, p).permute(0, 1, 3, 2, 4)             # row, pixel-row, col, pixel-col
@@ -209,13 +209,26 @@ def check():
         return got.shape == want.shape and torch.allclose(got, want, atol=1e-5)
 
     def run(step, *args):
+        """step(*args), or None (with the reason printed) if it fails or is still a TODO."""
         try:
             with torch.no_grad():
-                return step(*args)
-        except Exception as err:                                # e.g. a TODO not done yet
+                out = step(*args)
+        except Exception as err:
             print(f"   not working yet: {type(err).__name__}: {err}")
+            return None
+        if not isinstance(out, torch.Tensor):
+            print(f"   not done yet: it returns {out!r} instead of a tensor")
+            return None
+        return out
 
-    print(f"1. attention, on {B} images of {N} tokens x {D} numbers  (slide 24)")
+    print("1. scale_and_shift: x * (1 + scale) + shift, the same for every token  (slide 25)")
+    x, shift, scale = torch.randn(B, N, D), torch.randn(B, D), torch.randn(B, D)
+    out = run(scale_and_shift, x, shift, scale)
+    ok_scale = out is not None and mark(out.shape == (B, N, D),
+                                        f"output: {tuple(out.shape)}, should be {(B, N, D)}")
+    ok_scale = ok_scale and mark(same(out, x * (1 + scale[:, None]) + shift[:, None]), "right numbers")
+
+    print(f"2. attention, on {B} images of {N} tokens x {D} numbers  (slide 24)")
     seen = []                                                   # q's shape on its way into the formula
     sdpa = F.scaled_dot_product_attention
 
@@ -228,22 +241,21 @@ def check():
         out = run(block.attention, h)
     finally:
         F.scaled_dot_product_attention = sdpa
-    if out is None:
-        return
-    ok = True
-    if seen:
-        ok &= mark(seen[0] == (B, heads, N, D // heads),
-                   f"q going into F.scaled_dot_product_attention: {seen[0]}, "
-                   f"should be {(B, heads, N, D // heads)}")
-    ok &= mark(out.shape == (B, N, D), f"output: {tuple(out.shape)}, should be {(B, N, D)}")
-    with torch.no_grad():
-        ok &= mark(same(out, torch_attention(h, h, h, need_weights=False)[0]),
-                   "same numbers as PyTorch's nn.MultiheadAttention")
-    if not ok:
-        print("Fix attention first: the block and the whole model use it.")
+    ok_attention = out is not None
+    if ok_attention:
+        if seen:
+            ok_attention &= mark(seen[0] == (B, heads, N, D // heads),
+                                 f"q going into F.scaled_dot_product_attention: {seen[0]}, "
+                                 f"should be {(B, heads, N, D // heads)}")
+        ok_attention &= mark(out.shape == (B, N, D), f"output: {tuple(out.shape)}, should be {(B, N, D)}")
+        with torch.no_grad():
+            ok_attention &= mark(same(out, torch_attention(h, h, h, need_weights=False)[0]),
+                                 "same numbers as PyTorch's nn.MultiheadAttention")
+    if not (ok_scale and ok_attention):
+        print("Fix the steps above first: the block and the whole model use them.")
         return
 
-    print("2. the whole block: LN -> attention -> +, LN -> MLP -> +, with e's scale, shift, gate  (slide 25)")
+    print("3. the whole block: LN -> attention -> +, LN -> MLP -> +, with e's scale, shift, gate  (slide 25)")
     got = run(block, h, emb)
     if got is None:
         return
@@ -257,7 +269,7 @@ def check():
     if not (ok and mark(same(got, want), "same numbers as the block on slide 25")):
         return
 
-    print("3. the whole model, step by step")
+    print("4. the whole model, step by step")
     model = DiT(dim=D, heads=heads)
     steps = {"cut into patches (Conv 2x2)": model.patchify, "after each block": model.blocks[0],
              "Linear 176 -> 4 per token": model.head}
