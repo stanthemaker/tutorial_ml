@@ -1436,11 +1436,11 @@ def fig_ada_block(path, n_tok, dim, heads):
     mid = y + h / 2
     stages = [(0.0, 1.1, f"tokens\n{n_tok} x {dim}", "#9aa3ad", None),
               (1.35, 0.6, "LN", C_COOL, "norm1"),
-              (2.2, 1.2, "× (1 + scale)\n+ shift", C_WARM, "modulate"),
+              (2.2, 1.2, "× (1 + scale)\n+ shift", C_WARM, "scale_and_shift"),
               (3.65, 1.35, f"attention\n{heads} heads", C_COOL, "attention"),
               (5.25, 0.65, "× gate", C_WARM, "gate1"),
               (6.75, 0.6, "LN", C_COOL, "norm2"),
-              (7.6, 1.2, "× (1 + scale)\n+ shift", C_WARM, "modulate"),
+              (7.6, 1.2, "× (1 + scale)\n+ shift", C_WARM, "scale_and_shift"),
               (9.05, 1.6, f"MLP, each token\n{dim} -> {4 * dim} -> {dim}", C_COOL, "mlp"),
               (10.9, 0.65, "× gate", C_WARM, "gate2"),
               (12.4, 1.0, f"out\n{n_tok} x {dim}", "#9aa3ad", None)]
