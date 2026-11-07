@@ -71,47 +71,69 @@ from part1_unet_diffusion import train, training_args
 NAME = "part2_transformer"
 
 
-def modulate(h, shift, scale): 
-    """computes LN(h)·(1 + scale) + shift."""
-    return h * (1 + scale[:, None, :]) + shift[:, None, :]
+def modulate(x, shift, scale):
+    """x * (1 + scale) + shift: the scale and shift that e picks, one per channel.
+    [:, None, :] makes them B x 1 x 176, so all 256 tokens get the same ones."""
+    return x * (1 + scale[:, None, :]) + shift[:, None, :]
 
 
 class TransformerBlock(nn.Module):
-    """Attention (every patch looks at every patch), then an MLP (each patch
-    on its own). Each part is added back onto its input (a residual).
+    """One transformer block, line by line as on the slides:
 
-    How t and y get in -- "adaLN-Zero", the DiT paper's recipe:
-    the U-Net Block only ADDS e. Here e is turned into six vectors per block:
-    a shift and a scale for the normalised input of each part, and a gate
-    that multiplies each part's output. The gates start at 0, so every block
-    starts as "do nothing" and training switches it on gradually.
+        h -> LN -> attention -> + -> LN -> MLP -> +
+        '-------------------------'  '------------'   residual: the input is added back
+
+    How t and y get in -- "adaLN-Zero", the DiT paper's recipe. The U-Net Block
+    only ADDS e. Here e is turned into six vectors of 176 numbers per block:
+      shift, scale  right after each LN: LN(h) * (1 + scale) + shift.
+                    A plain LayerNorm learns one fixed scale and shift; here e
+                    picks them, so they change with t and the label ("adaptive LN").
+      gate          multiplies each half's output before it is added back.
+                    It starts at 0 ("-Zero"), so every block starts as "do
+                    nothing" and training switches it on gradually.
     """
 
     def __init__(self, dim, heads):
         super().__init__()
         self.heads = heads
-        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.qkv = nn.Linear(dim, 3 * dim) # W_Q, W_K and W_V 
-        self.proj = nn.Linear(dim, dim)
+        # first half: LN -> attention -> +
+        self.norm1 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)  # no scale/shift of its own: e gives them
+        self.qkv = nn.Linear(dim, 3 * dim)                                  # W_Q, W_K, W_V side by side
+        self.proj = nn.Linear(dim, dim)                                     # mixes the heads' outputs
+        # second half: LN -> MLP -> +
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.mlp = nn.Sequential(nn.Linear(dim, 4 * dim), nn.GELU(), nn.Linear(4 * dim, dim))
+        # e -> shift, scale, gate for each half
         self.ada = nn.Sequential(nn.SiLU(), nn.Linear(dim, 6 * dim))
-        nn.init.zeros_(self.ada[1].weight)
+        nn.init.zeros_(self.ada[1].weight)                                  # all six start at 0
         nn.init.zeros_(self.ada[1].bias)
 
     def attention(self, h):
-        B, N, D = h.shape                               # (64, 256, 176): N = 256 tokens, d = 176 (slide 20)
-        q, k, v = (self.qkv(h)                          # (64, 256, 528): hW_Q, hW_K, hW_V side by side
-           .view(B, N, 3, self.heads, D // self.heads)  # (64, 256, 3, 4, 44): 528 = 3 × 4 heads × 44
-           .permute(2, 0, 3, 1, 4))                     # (3, 64, 4, 256, 44) → q, k, v each (64, 4, 256, 44)
-        out = F.scaled_dot_product_attention(q, k, v)   # softmax(QKᵀ/√44)·V, per image, per head
-        return self.proj(out.transpose(1, 2).reshape(B, N, D))   # heads side by side → (64, 256, 176) → Linear
-
+        """softmax(Q K^T / sqrt(d)) V, run by 4 heads side by side. Shapes for a
+        training batch of B = 64 images; N = 256 tokens of D = 176 numbers."""
+        B, N, D = h.shape                                     # (64, 256, 176)
+        q, k, v = self.qkv(h).chunk(3, dim=-1)                # Q = hW_Q, K = hW_K, V = hW_V: each (64, 256, 176)
+        q, k, v = [m.view(B, N, self.heads, D // self.heads).transpose(1, 2)
+                   for m in (q, k, v)]                        # cut into 4 heads of 44: each (64, 4, 256, 44)
+        out = F.scaled_dot_product_attention(q, k, v)         # softmax(QK^T/sqrt(44)) V, per head: (64, 4, 256, 44)
+        out = out.transpose(1, 2).reshape(B, N, D)            # the 4 heads side by side again: (64, 256, 176)
+        return self.proj(out)                                 # Linear 176 -> 176: mixes the heads
 
     def forward(self, h, emb):
+        # e -> six vectors of 176 numbers for this block, each (64, 176)
         shift1, scale1, gate1, shift2, scale2, gate2 = self.ada(emb).chunk(6, dim=1)
-        h = h + gate1[:, None, :] * self.attention(modulate(self.norm1(h), shift1, scale1))
-        h = h + gate2[:, None, :] * self.mlp(modulate(self.norm2(h), shift2, scale2))
+
+        # first half: LN -> attention -> +
+        a = self.norm1(h)                        # LN
+        a = modulate(a, shift1, scale1)          # e's scale and shift
+        a = self.attention(a)                    # attention
+        h = h + gate1[:, None, :] * a            # +: added back onto the input, after e's gate
+
+        # second half: LN -> MLP -> +
+        m = self.norm2(h)                        # LN
+        m = modulate(m, shift2, scale2)          # e's scale and shift
+        m = self.mlp(m)                          # MLP: 176 -> 704 -> 176, each token on its own
+        h = h + gate2[:, None, :] * m            # +: added back onto the input, after e's gate
         return h
 
 
@@ -129,6 +151,7 @@ class DiT(nn.Module):
         self.pos = nn.Parameter(torch.randn(1, grid * grid, dim) * 0.02)
         self.blocks = nn.ModuleList([TransformerBlock(dim, heads) for _ in range(depth)])
 
+        # the last step: LN with e's scale and shift (no gate), then Linear 176 -> 4
         self.norm = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
         self.ada = nn.Sequential(nn.SiLU(), nn.Linear(dim, 2 * dim))
         self.head = nn.Linear(dim, patch * patch)
