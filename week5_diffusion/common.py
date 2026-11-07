@@ -205,7 +205,8 @@ def ddpm_sample(model, sched, labels, guidance=3.0, generator=None, trajectory=N
         # hint1: follow slide 12 to get x_t-1
         # first remove noise here:
         if t > 0: # prevent the last step (t=0) from adding noise
-            # then add a new noise here 
+            # then add a new noise here
+            pass  # replace this line with your code
         if trajectory is not None:
             trajectory.append((t, x.clamp(-1, 1).cpu()))
     return x.clamp(-1, 1)

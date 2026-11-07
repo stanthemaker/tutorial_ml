@@ -75,9 +75,10 @@ NAME = "part2_transformer"
 
 
 def scale_and_shift(x, shift, scale):
-    """x * (1 + scale) + shift: the scale and shift that e picks, one per channel.
-    [:, None, :] makes them B x 1 x 176, so all 256 tokens get the same ones."""
-    return x * (1 + scale[:, None, :]) + shift[:, None, :]
+    ## TODO implement scale and shift 
+    ## hint x * (1 + scale) + shift: the scale and shift that e picks, one per channel.
+    ## [:, None, :] makes them B x 1 x 176, so all 256 tokens get the same ones.
+    return
 
 
 class TransformerBlock(nn.Module):
@@ -117,12 +118,15 @@ class TransformerBlock(nn.Module):
         of D = 176 numbers."""
         B, N, D = h.shape                                     # (B, 256, 176)
         q, k, v = self.qkv(h).chunk(3, dim=-1)                # Q = hW_Q, K = hW_K, V = hW_V: each (B, 256, 176)
+        print(q.shape)
         ## TODO: cut q, k and v into 4 heads of 44 numbers (slide 24): each (B, 256, 176) -> (B, 4, 256, 44)
+        ## hint: use .view() method
+        ## TODO: get the token after qkv matrix-matrix multiplicatoin
         ## hint: look up F.scaled_dot_product_attention in the PyTorch docs. It works on the last two
         ##       dims (N x 44) and treats every dim in front of them as a separate batch, so the heads
         ##       must come before N:  (B, 256, 176) -view-> (B, 256, 4, 44) -transpose-> (B, 4, 256, 44)
         ## q, k, v = [m.view(_, _, _, _).transpose(_, _) for m in (q, k, v)]
-        out = F.scaled_dot_product_attention(q, k, v)         # softmax(QK^T/sqrt(44)) V, per head: (B, 4, 256, 44)
+        ## out = F.scaled_dot_product_attention(q, k, v)         # softmax(QK^T/sqrt(44)) V, per head: (B, 4, 256, 44)
         out = out.transpose(1, 2).reshape(B, N, D)            # the 4 heads side by side again: (B, 256, 176)
         return self.proj(out)                                 # Linear 176 -> 176: mixes the heads
 
@@ -133,7 +137,7 @@ class TransformerBlock(nn.Module):
         ## TODO: first half: LN -> attention -> +   (slide 25: one line per box)
         ## hint: the second half below does the same with norm2, shift2, scale2, mlp and gate2
         ## a = self.norm1(_)                     # LN
-        ## a = scale_and_shift(_, _, _)          # e's scale and shift
+        ## a = scale_and_shift(_, _, _)                 # e's scale and shift
         ## a = self.attention(_)                 # attention
         ## h = h + _ * a                         # +: added back onto the input, after e's gate
 
