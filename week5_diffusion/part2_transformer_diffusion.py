@@ -113,8 +113,11 @@ class TransformerBlock(nn.Module):
         training batch of B = 64 images; N = 256 tokens of D = 176 numbers."""
         B, N, D = h.shape                                     # (64, 256, 176)
         q, k, v = self.qkv(h).chunk(3, dim=-1)                # Q = hW_Q, K = hW_K, V = hW_V: each (64, 256, 176)
-        q, k, v = [m.view(B, N, self.heads, D // self.heads).transpose(1, 2)
-                   for m in (q, k, v)]                        # cut into 4 heads of 44: each (64, 4, 256, 44)
+        ## TODO: cut q, k and v into 4 heads of 44 numbers (slide 24): each (64, 256, 176) -> (64, 4, 256, 44)
+        ## hint: look up F.scaled_dot_product_attention in the PyTorch docs. It works on the last two
+        ##       dims (N x 44) and treats every dim in front of them as a separate batch, so the heads
+        ##       must come before N:  (64, 256, 176) -view-> (64, 256, 4, 44) -transpose-> (64, 4, 256, 44)
+        ## q, k, v = [m.view(_, _, _, _).transpose(_, _) for m in (q, k, v)]
         out = F.scaled_dot_product_attention(q, k, v)         # softmax(QK^T/sqrt(44)) V, per head: (64, 4, 256, 44)
         out = out.transpose(1, 2).reshape(B, N, D)            # the 4 heads side by side again: (64, 256, 176)
         return self.proj(out)                                 # Linear 176 -> 176: mixes the heads
@@ -123,11 +126,12 @@ class TransformerBlock(nn.Module):
         # e -> six vectors of 176 numbers for this block, each (64, 176)
         shift1, scale1, gate1, shift2, scale2, gate2 = self.ada(emb).chunk(6, dim=1)
 
-        # first half: LN -> attention -> +
-        a = self.norm1(h)                        # LN
-        a = modulate(a, shift1, scale1)          # e's scale and shift
-        a = self.attention(a)                    # attention
-        h = h + gate1[:, None, :] * a            # +: added back onto the input, after e's gate
+        ## TODO: first half: LN -> attention -> +   (slide 25: one line per box)
+        ## hint: the second half below does the same with norm2, shift2, scale2, mlp and gate2
+        ## a = self.norm1(_)                     # LN
+        ## a = modulate(_, _, _)                 # e's scale and shift
+        ## a = self.attention(_)                 # attention
+        ## h = h + _ * a                         # +: added back onto the input, after e's gate
 
         # second half: LN -> MLP -> +
         m = self.norm2(h)                        # LN
