@@ -1312,6 +1312,174 @@ def fig_dit(path, shapes, n_params, depth, dim):
     return save(fig, path)
 
 
+def code_label(ax, x, y, s):
+    """The name a box has in part2_transformer_diffusion.py, in grey monospace."""
+    ax.text(x, y, s, ha="center", va="bottom", fontsize=8.5, color=C_GREY, family="monospace")
+
+
+def fig_heads(path, n_tok, dim, heads):
+    """Inside the attention box: qkv, cut into heads, one softmax per head, side by side, proj.
+    Drawn in slide inches."""
+    hd = dim // heads
+    fig, ax = canvas(13.45, 2.2, (0, 13.45), (0, 2.2))
+    mid, h = 0.98, 0.8
+    stages = [(0.0, 1.1, f"tokens h\n{n_tok} x {dim}", "#9aa3ad", None),
+              (1.35, 1.85, f"Linear {dim} -> 3 x {dim}\nQ, K, V: {n_tok} x {dim} each", C_COOL,
+               "self.qkv"),
+              (3.45, 1.3, f"cut into\n{heads} heads of {hd}", C_COOL, "view, transpose"),
+              (9.0, 1.3, f"{heads} heads side\nby side: {n_tok} x {dim}", C_COOL, "transpose, reshape"),
+              (10.55, 1.5, f"Linear {dim} -> {dim}\nmixes the heads", C_COOL, "self.proj"),
+              (12.3, 1.1, f"out\n{n_tok} x {dim}", "#9aa3ad", None)]
+    for x, w, label, col, code in stages:
+        box(ax, x, mid - h / 2, w, h, label, col, fs=9.5)
+        if code:
+            code_label(ax, x + w / 2, mid + h / 2 + 0.06, code)
+    for (x, w, *_), (nx, *_) in zip(stages[:2], stages[1:3]):
+        arrow(ax, (x + w, mid), (nx, mid))
+    for (x, w, *_), (nx, *_) in zip(stages[3:5], stages[4:]):
+        arrow(ax, (x + w, mid), (nx, mid))
+
+    lx, lw, lh, gap = 5.2, 3.3, 0.34, 0.1                 # one lane per head
+    for i in range(heads):
+        yc = mid + ((heads - 1) / 2 - i) * (lh + gap)
+        box(ax, lx, yc - lh / 2, lw, lh,
+            f"head {i + 1}:  softmax$(QK^T/\\sqrt{{{hd}}})\\,V$    {n_tok} x {hd}", C_COOL, fs=9)
+        arrow(ax, (4.75, mid), (lx, yc), lw=1.1)
+        ax.plot([lx + lw, 8.75], [yc, mid], color=C_GREY, lw=1.1)   # lanes join, then one arrow
+    arrow(ax, (8.75, mid), (9.0, mid), lw=1.1)
+    top = mid + (heads / 2) * (lh + gap)
+    code_label(ax, lx + lw / 2, top + 0.02, "F.scaled_dot_product_attention")
+    return save(fig, path)
+
+
+def toy_heads():
+    """Made-up numbers: token 0 wants numbers 1-2 of token 1 and numbers 3-4 of token 2.
+    The formula is slide 20's, softmax(q k^T / sqrt(d)) V, with d = the numbers a head sees."""
+    q = torch.tensor([20., 0., 0., 20.])                                # token 0's query
+    k = torch.tensor([[0., 0., 0., 0.], [1., 0., 0., 0.], [0., 0., 0., 1.]])
+    v = torch.tensor([[0., 0., 0., 0.], [1., 2., 3., 4.], [5., 6., 7., 8.]])
+    one = torch.softmax(k @ q / 4 ** 0.5, 0)                            # 1 head: all 4 numbers
+    a = torch.softmax(k[:, :2] @ q[:2] / 2 ** 0.5, 0)                   # head A: numbers 1-2
+    b = torch.softmax(k[:, 2:] @ q[2:] / 2 ** 0.5, 0)                   # head B: numbers 3-4
+    return v, one, one @ v, a, a @ v[:, :2], b, b @ v[:, 2:]
+
+
+def cells(ax, x, top, m, cell, fill, fs=9.5):
+    """A small matrix as cells with its numbers; fill(i, j, value) gives each cell's colour."""
+    m = m.reshape(-1, m.shape[-1])
+    n, k = m.shape
+    for i in range(n):
+        for j in range(k):
+            val = float(m[i, j])
+            ax.add_patch(plt.Rectangle((x + j * cell, top - (i + 1) * cell), cell, cell,
+                                       fc=fill(i, j, val), ec="white", lw=1.2))
+            ax.text(x + (j + 0.5) * cell, top - (i + 0.5) * cell, f"{val:.1f}",
+                    ha="center", va="center", fontsize=fs, color="#1c222b")
+    return x + k * cell
+
+
+def fig_heads_toy(path):
+    """One head vs two heads on the made-up example. Drawn in slide inches."""
+    v, one, out1, a, out_a, b, out_b = toy_heads()
+    fig, ax = canvas(12.4, 2.6, (0, 12.4), (0, 2.6))
+    c = 0.3
+    TINT_A, TINT_B, BLEND = "#d3e0ee", "#f4dccc", "#e2e2e2"
+    weight = lambda i, j, val: matplotlib.colormaps["Oranges"](0.08 + 0.6 * val)
+    by_col = lambda first, second, split: (lambda i, j, val: first if j < split else second)
+
+    def sign(x, y, s):
+        ax.text(x, y, s, ha="center", va="center", fontsize=13, color=C_GREY)
+
+    def small(x, y, s, ha="center", va="top", color=C_GREY):
+        ax.text(x, y, s, ha=ha, va=va, fontsize=8.5, color=color)
+
+    # one head
+    ax.text(0.0, 2.5, "1 head: one row of weights for all 4 numbers", fontsize=10.5,
+            color="#1c222b", va="top", weight="bold")
+    mid = 1.15
+    cells(ax, 0.0, mid + c / 2, one, c, weight)
+    small(0.45, mid - c / 2 - 0.08, "token 0's weights\nfor tokens 0, 1, 2")
+    sign(1.13, mid, "×")
+    cells(ax, 1.3, mid + 1.5 * c, v, c, by_col(TINT_A, TINT_B, 2))
+    small(1.9, mid + 1.5 * c + 0.06, "V: 3 tokens x 4 numbers", va="bottom")
+    sign(2.68, mid, "=")
+    cells(ax, 2.85, mid + c / 2, out1, c, lambda *_: BLEND)
+    small(3.45, mid - c / 2 - 0.08, "a blend of\ntokens 1 and 2")
+    small(4.2, mid + 0.02, f"wanted {', '.join(str(int(x)) for x in [*v[1, :2], *v[2, 2:]])}:\n"
+          "no single row of\nweights gives it", ha="left", va="center", color=C_WARM)
+
+    ax.plot([6.0, 6.0], [0.15, 2.45], color=C_GRID, lw=1.2)
+
+    # two heads
+    x0 = 6.35
+    ax.text(x0, 2.5, "2 heads: each has its own row of weights, for its own 2 numbers",
+            fontsize=10.5, color="#1c222b", va="top", weight="bold")
+    rows = [(1.62, "head A", a, v[:, :2], out_a, TINT_A), (0.55, "head B", b, v[:, 2:], out_b, TINT_B)]
+    for ym, name, w_, vv, out, tint in rows:
+        small(x0, ym, name, ha="left", va="center", color="#1c222b")
+        cells(ax, x0 + 0.75, ym + c / 2, w_, c, weight)
+        sign(x0 + 1.85, ym, "×")
+        cells(ax, x0 + 2.05, ym + 1.5 * c, vv, c, lambda *_, t=tint: t)
+        sign(x0 + 2.9, ym, "=")
+        right = cells(ax, x0 + 3.1, ym + c / 2, out, c, lambda *_, t=tint: t)
+        arrow(ax, (right + 0.1, ym), (x0 + 4.25, 1.085 + (0.12 if ym > 1 else -0.12)), lw=1.1)
+    both = torch.cat([out_a, out_b])
+    cells(ax, x0 + 4.35, 1.085 + c / 2, both, c, by_col(TINT_A, TINT_B, 2))
+    small(x0 + 4.35 + 2 * c, 1.085 - c / 2 - 0.08, "side by side:\nwhat token 0 wanted")
+    return save(fig, path)
+
+
+def fig_ada_block(path, n_tok, dim, heads):
+    """The block from fig_plain_block, plus what e does to it (orange), with code names."""
+    fig, ax = canvas(13.45, 3.05, (0, 13.45), (-0.2, 2.85))
+    y, h = 1.25, 0.8
+    mid = y + h / 2
+    stages = [(0.0, 1.1, f"tokens\n{n_tok} x {dim}", "#9aa3ad", None),
+              (1.35, 0.6, "LN", C_COOL, "norm1"),
+              (2.2, 1.2, "× (1 + scale)\n+ shift", C_WARM, "modulate"),
+              (3.65, 1.35, f"attention\n{heads} heads", C_COOL, "attention"),
+              (5.25, 0.65, "× gate", C_WARM, "gate1"),
+              (6.75, 0.6, "LN", C_COOL, "norm2"),
+              (7.6, 1.2, "× (1 + scale)\n+ shift", C_WARM, "modulate"),
+              (9.05, 1.6, f"MLP, each token\n{dim} -> {4 * dim} -> {dim}", C_COOL, "mlp"),
+              (10.9, 0.65, "× gate", C_WARM, "gate2"),
+              (12.4, 1.0, f"out\n{n_tok} x {dim}", "#9aa3ad", None)]
+    for x, w, label, col, code in stages:
+        box(ax, x, y, w, h, label, col, fs=9.5)
+        if code:
+            code_label(ax, x + w / 2, y + h + 0.06, code)
+    pluses = [6.2, 11.85]
+    for cx in pluses:
+        ax.add_patch(plt.Circle((cx, mid), 0.25, color=C_GREY))
+        ax.text(cx, mid, "+", ha="center", va="center", fontsize=16, color="white")
+    ends = [x + w for x, w, *_ in stages]
+    starts = [x for x, *_ in stages]
+    for i in (0, 1, 2, 3, 5, 6, 7):
+        arrow(ax, (ends[i], mid), (starts[i + 1], mid))
+    arrow(ax, (ends[4], mid), (pluses[0] - 0.25, mid)); arrow(ax, (pluses[0] + 0.25, mid), (starts[5], mid))
+    arrow(ax, (ends[8], mid), (pluses[1] - 0.25, mid)); arrow(ax, (pluses[1] + 0.25, mid), (starts[9], mid))
+    top = 2.55
+    for start, cx in ((1.22, pluses[0]), (6.58, pluses[1])):    # residuals
+        ax.plot([start, start, cx], [mid, top, top], color=C_GREY, lw=1.3)
+        arrow(ax, (cx, top), (cx, mid + 0.25), lw=1.3)
+    ax.text(3.7, top + 0.05, "residual: input added back", ha="center", va="bottom", fontsize=9,
+            color=C_GREY)
+
+    box(ax, 0.0, 0.05, 1.55, 0.6, f"e: {dim} numbers\nfrom t and y", "#e8d6c8", fs=9.5,
+        tc="#1c222b", alpha=1.0)
+    box(ax, 1.85, 0.05, 2.6, 0.6, f"SiLU, Linear {dim} -> 6 x {dim}", C_WARM, fs=9.5)
+    code_label(ax, 3.15, -0.2, "self.ada")
+    arrow(ax, (1.55, 0.35), (1.85, 0.35))
+    bus = 0.35
+    feeds = [(2.8, "shift1, scale1"), (5.575, "gate1"), (8.2, "shift2, scale2"), (11.225, "gate2")]
+    ax.plot([4.45, feeds[-1][0]], [bus, bus], color=C_WARM, lw=1.3)
+    for x, name in feeds:
+        arrow(ax, (x, 0.65 if x < 4.45 else bus), (x, y), color=C_WARM, lw=1.3)
+        ax.text(x + 0.07, 0.95, name, ha="left", va="center", fontsize=8.5, color=C_WARM,
+                family="monospace")
+    return save(fig, path)
+
+
 def short_device(name):
     """'NVIDIA RTX 2000 Ada Generation Laptop GPU' -> 'RTX 2000 Ada Laptop GPU'."""
     return name.replace("NVIDIA ", "").replace(" Generation", "")
@@ -1859,6 +2027,34 @@ def part2(prs, tmp, x0, unet, train_log):
         "and the gradient reaches early blocks directly.",
         "Shape in = shape out, so blocks stack: the whole network is this block, repeated.",
     ], top=Inches(4.45), size=14.5)
+    block_no = len(prs.slides)
+
+    # ------------------------------------------------ the two parts the plain diagram leaves out
+    heads = dit.blocks[0].heads
+    hd = dim // heads
+    two_picture_slide(prs, "PART 2: THE MODEL", f"Inside attention: {heads} heads of {hd} numbers each",
+                      fig_heads(os.path.join(tmp, "heads.png"), n_tok, dim, heads), Inches(2.0),
+                      fig_heads_toy(os.path.join(tmp, "heads_toy.png")), Inches(2.55),
+                      cap=f"Each head runs the attention formula with d = {hd}, on its own {hd} of the "
+                          f"{dim} numbers. Same weights and same work as one head of {dim}; what heads add "
+                          f"is {heads} rows of weights per token instead of 1. proj then mixes the results.")
+
+    ada = sum(p.numel() for m in [*(b.ada for b in dit.blocks), dit.ada] for p in m.parameters())
+    s = blank(prs)
+    header(s, "PART 2: THE MODEL", "How t and y get in: scale, shift, gate")
+    picture(s, fig_ada_block(os.path.join(tmp, "ada_block.png"), n_tok, dim, heads),
+            top=Inches(1.85), height=Inches(2.9))
+    bullets(s, [
+        f"Orange: what e adds to slide {block_no}'s block. One Linear (ada) turns e into 6 x {dim} "
+        "numbers per block.",
+        "Scale, shift: a plain LayerNorm learns one fixed scale and shift; here e picks them, so they "
+        "change with t and the label (\"adaptive LayerNorm\", adaLN). The U-Net's Block only added e, "
+        "which is what shift does; scale and gate are new.",
+        "Gate: multiplies each half's output before it is added back. ada starts as all zeros, so every "
+        "gate starts at 0 and every block starts as output = input (the \"-Zero\" in adaLN-Zero).",
+        f"The last layer does the same before Linear {dim} -> 4 (scale and shift, no gate). All the ada "
+        f"layers together: {ada:,} of the {d_params:,} parameters ({100 * ada / d_params:.0f}%).",
+    ], top=Inches(4.85), size=14.5)
 
     g = IMAGE_SIZE // dit.patch
     ex = 74
