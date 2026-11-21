@@ -1163,6 +1163,120 @@ def fig_attention_toy(path, row=2):
     return save(fig, path)
 
 
+# The cat analogy: 4 patches with keys and values picked by hand so a student
+# can read them (keys: [cat-ness, background-ness]; values: a colour, R G B).
+# In the real model W_Q, W_K, W_V are learned; nothing here is.
+CAT_NAMES = ["A", "B", "C", "D"]
+CAT_WHAT = ["cat ear, very noisy", "cat face, clear", "grass", "sky"]
+CAT_KEYS = torch.tensor([[2., 0.], [3., 0.], [0., 3.], [0., 2.]])
+CAT_VALUES = torch.tensor([[0.5, 0.5, 0.5], [0.9, 0.5, 0.1], [0.2, 0.7, 0.2], [0.4, 0.6, 0.9]])
+CAT_QUERIES = {0: ([1., 0.], "cat?"), 2: ([0., 1.], "background?")}   # patch -> (query, in words)
+CAT_GRID = {0: (0, 1), 3: (1, 1), 1: (0, 0), 2: (1, 0)}             # patch -> (col, row): ear above face
+
+
+def cat_attention(i):
+    """Patch i's scores, weights and output: softmax(q K^T / sqrt(d)) V, d = 2."""
+    q = torch.tensor(CAT_QUERIES[i][0])
+    scores = CAT_KEYS @ q / CAT_KEYS.shape[1] ** 0.5
+    w = torch.softmax(scores, dim=0)
+    return scores, w, w @ CAT_VALUES
+
+
+def cat_tile(ax, i, x, y, size):
+    """Patch i as a square of its colour; the noisy ear gets seeded noise on top."""
+    tile = CAT_VALUES[i].expand(8, 8, 3).clone()
+    if i == 0:
+        g = torch.Generator().manual_seed(0)
+        tile = (tile + 0.28 * torch.randn(8, 8, 1, generator=g)).clamp(0, 1)
+    ax.imshow(tile.numpy(), extent=(x, x + size, y, y + size), aspect="auto",
+              interpolation="nearest", zorder=2)
+    ax.add_patch(plt.Rectangle((x, y), size, size, fill=False, ec="white", lw=2, zorder=3))
+
+
+def swatch(ax, x, y, rgb, size=0.28):
+    ax.add_patch(plt.Rectangle((x, y), size, size, fc=tuple(rgb.tolist()), ec=C_GRID, lw=0.8))
+
+
+def vec(v):
+    return "[" + ", ".join(f"{float(x):.2f}" if not float(x).is_integer() else f"{int(x)}"
+                           for x in v) + "]"
+
+
+def fig_cat_cards(path):
+    """The 4 people at the meeting: each patch's name tag (key) and what it says (value)."""
+    fig, ax = canvas(12.6, 2.05, (0, 12.6), (0, 2.05))
+    for i in range(4):
+        x = 0.1 + i * 3.15
+        cat_tile(ax, i, x, 0.35, 1.2)
+        ax.text(x + 0.6, 0.27, f"{CAT_NAMES[i]}: {CAT_WHAT[i]}", ha="center", va="top", fontsize=10,
+                fontweight="bold")
+        tx = x + 1.38
+        ax.text(tx, 1.5, "key (name tag)", fontsize=9, color=C_GREY, va="center")
+        ax.text(tx, 1.25, vec(CAT_KEYS[i]), fontsize=11, family="monospace", va="center")
+        ax.text(tx, 0.95, "value (what it says)", fontsize=9, color=C_GREY, va="center")
+        swatch(ax, tx, 0.56, CAT_VALUES[i])
+        ax.text(tx + 0.36, 0.7, vec(CAT_VALUES[i]), fontsize=9, family="monospace", va="center")
+        if i in CAT_QUERIES:
+            q, words = CAT_QUERIES[i]
+            ax.text(tx, 1.86, f"query: {vec(q)}  \"{words}\"", fontsize=9.5, color=C_WARM,
+                    va="center", fontweight="bold")
+    ax.text(6.3, 0.0, "key = [cat-ness, background-ness]        value = a colour, [R, G, B]",
+            ha="center", va="bottom", fontsize=9, color=C_GREY)
+    return save(fig, path)
+
+
+def fig_cat_attention(path):
+    """Two patches ask two different questions of the same 4 patches; every number computed."""
+    fig, ax = canvas(12.6, 4.3, (0, 12.6), (0, 4.3))
+    cell = 1.05
+    for p, i in enumerate(CAT_QUERIES):
+        x0 = 0.15 + p * 6.45
+        q, words = CAT_QUERIES[i]
+        scores, w, out = cat_attention(i)
+        ax.text(x0, 4.2, f"{CAT_NAMES[i]} ({CAT_WHAT[i]}) asks \"{words}\"   query = {vec(q)}",
+                fontsize=11.5, fontweight="bold", color=C_WARM, va="top")
+
+        gx, gy = x0 + 0.05, 1.05                                  # 2 x 2 image, bottom-left corner
+        for j, (c, r) in CAT_GRID.items():
+            tx, ty = gx + c * cell, gy + r * cell
+            cat_tile(ax, j, tx, ty, cell)
+            ax.text(tx + 0.1, ty + cell - 0.1, CAT_NAMES[j], fontsize=11, fontweight="bold",
+                    color="white", va="top", zorder=5)
+            ax.text(tx + cell / 2, ty + 0.12, f"{float(w[j]):.2f}", fontsize=11, ha="center",
+                    va="bottom", zorder=5, fontweight="bold",
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.85))
+        ax.add_patch(plt.Rectangle((gx + CAT_GRID[i][0] * cell, gy + CAT_GRID[i][1] * cell), cell, cell,
+                                   fill=False, ec=C_WARM, lw=3, zorder=6))
+        ax.text(gx + cell, gy - 0.12, f"on each patch: how much {CAT_NAMES[i]}\n(orange box) listens to it",
+                ha="center", va="top", fontsize=8.5, color=C_GREY)
+
+        tx = x0 + 2.45                                             # the numbers, one row per patch
+        cols = [(tx, "patch"), (tx + 0.75, "key"), (tx + 1.55, "q·k / √2"), (tx + 2.65, "weight")]
+        for cx, name in cols:
+            ax.text(cx, 3.45, name, fontsize=9.5, color=C_GREY, va="center")
+        ax.plot([tx, tx + 3.6], [3.3, 3.3], color=C_GRID, lw=1)
+        for j in range(4):
+            y = 3.05 - j * 0.33
+            row = [CAT_NAMES[j], vec(CAT_KEYS[j]), f"{float(scores[j]):.2f}", f"{float(w[j]):.2f}"]
+            for (cx, _), s in zip(cols, row):
+                ax.text(cx, y, s, fontsize=10.5, family="monospace", va="center",
+                        color=C_WARM if s == row[3] else "#1c222b")
+        ax.text(tx + 2.65, 3.05 - 4 * 0.33 + 0.02, f"sum {float(w.sum()):.2f}", fontsize=8.5,
+                color=C_GREY, va="center")
+
+        ax.text(tx, 1.2, "before:", fontsize=10, va="center")
+        swatch(ax, tx + 0.7, 1.06, CAT_VALUES[i])
+        ax.text(tx + 1.08, 1.2, vec(CAT_VALUES[i]), fontsize=9.5, family="monospace", va="center")
+        ax.text(tx, 0.7, "after:", fontsize=10, va="center", fontweight="bold")
+        swatch(ax, tx + 0.7, 0.56, out)
+        ax.text(tx + 1.08, 0.7, vec(out), fontsize=9.5, family="monospace", va="center",
+                fontweight="bold")
+        terms = " + ".join(f"{float(w[j]):.2f} v{CAT_NAMES[j]}" for j in range(4))
+        ax.text(tx, 0.3, f"= {terms}", fontsize=8.5, color=C_GREY, va="center")
+    ax.plot([6.35, 6.35], [0.2, 4.1], color=C_GRID, lw=1)
+    return save(fig, path)
+
+
 def blank_patches(x0, p, far_from):
     """Token numbers of all-black patches (every pixel -1), and the one furthest
     from token `far_from` that sits inside the digit's bounding box."""
@@ -1967,7 +2081,22 @@ def part2(prs, tmp, x0, unet, train_log):
     # ------------------------------------------------ attention, on its own
     toy_h, *_, toy_a, _ = toy_attention()
     toy_terms = " + ".join(f"{w:.2f} v{j + 1}" for j, w in enumerate(toy_a[2].tolist()))
-    flow_slide(prs, "PART 2: ATTENTION (1/2)", "Every token takes a weighted mix of all tokens", [
+    s = blank(prs)
+    header(s, "PART 2: ATTENTION (1/4)", "The idea: patches in a meeting")
+    bullets(s, [
+        ("Think of the patches of one image as people in a meeting. Each brings three things:", "lead"),
+        "Query: the question I want answered.     Key: my name tag, saying what I am good for.     "
+        "Value: what I say when someone listens to me.",
+        "Every person, all at the same time:  1. compare my question with every name tag, my own too  "
+        "->  2. split my attention, 100% in total, mostly on the best matches  ->  3. write down a "
+        "mix of what everyone said, weighted by how much I listened.",
+        ("Self-attention: the ones asking and the ones answering are the same group, the patches of "
+         "one image. Below: 4 patches of a cat on grass. The next slide turns the three steps into a "
+         "formula; the one after runs it on these 4 patches.", "note"),
+    ], top=Inches(1.85), size=16)
+    picture(s, fig_cat_cards(os.path.join(tmp, "cat_cards.png")), top=Inches(4.65), height=Inches(2.25))
+
+    flow_slide(prs, "PART 2: ATTENTION (2/4)", "Every token takes a weighted mix of all tokens", [
         ("lead", "A transformer works on tokens: rows of d numbers, each describing one piece of the "
                  f"input (ours: one 2 x 2 patch of the image, so N = {n_tok} and d = {dim})."),
         ("text", "In attention, each token asks a question, every token offers an answer, and how well "
@@ -1985,7 +2114,17 @@ def part2(prs, tmp, x0, unet, train_log):
                  "tokens to mix."),
     ], tmp)
 
-    figure_slide(prs, "PART 2: ATTENTION (2/2)",
+    _, ear_w, _ = cat_attention(0)
+    figure_slide(prs, "PART 2: ATTENTION (3/4)", "The cat: a noisy patch borrows from the patches that match",
+                 fig_cat_attention(os.path.join(tmp, "cat_attn.png")),
+                 height=Inches(4.3), top=Inches(1.85),
+                 cap=f"The noisy ear A is grey and uninformative. It asks \"cat?\", the clear face B matches "
+                     f"best, so {float(ear_w[1]):.0%} of A's new colour comes from B's orange. C asks a different "
+                     "question and gets "
+                     "a different mix. Keys and values are picked by hand to be readable; in the model, "
+                     "W_Q, W_K, W_V are learned and nobody tells it \"cat\".")
+
+    figure_slide(prs, "PART 2: ATTENTION (4/4)",
                  f"The same formula, on {len(toy_h)} tokens of {toy_h.shape[1]} numbers",
                  fig_attention_toy(os.path.join(tmp, "attn_toy.png")),
                  height=Inches(4.55), top=Inches(1.8),
